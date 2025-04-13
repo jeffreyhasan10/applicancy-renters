@@ -123,13 +123,6 @@ const App = () => (
                 </MainLayout>
               </ProtectedRoute>
             } />
-            <Route path="/change-password" element={
-              <ProtectedRoute>
-                <MainLayout>
-                  <ChangePassword />
-                </MainLayout>
-              </ProtectedRoute>
-            } />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
