@@ -1,0 +1,133 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%; /* Soft White */
+    --foreground: 215 22% 17%; /* Charcoal Black */
+
+    --card: 220 14% 96%; /* Pearl Gray */
+    --card-foreground: 215 22% 17%; /* Charcoal Black */
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 22% 17%;
+
+    --primary: 215 22% 17%; /* Charcoal Black */
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 47 68% 52%; /* Champagne Gold */
+    --secondary-foreground: 215 22% 17%;
+
+    --muted: 220 14% 96%; /* Pearl Gray */
+    --muted-foreground: 220 9% 46%; /* Slate Gray */
+
+    --accent: 47 68% 52%; /* Champagne Gold */
+    --accent-foreground: 215 22% 17%;
+
+    --destructive: 0 84% 60%; /* Soft Red */
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 47 68% 52%; /* Champagne Gold */
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 215 22% 17%; /* Charcoal Black */
+    --sidebar-foreground: 0 0% 98%; /* Soft White */
+    --sidebar-primary: 47 68% 52%; /* Champagne Gold */
+    --sidebar-primary-foreground: 215 22% 17%;
+    --sidebar-accent: 215 19% 24%; /* Slightly lighter sidebar */
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 215 16% 27%;
+    --sidebar-ring: 47 68% 52%; /* Gold */
+    
+    /* Enhanced luxury colors */
+    --luxury-gold: 47 68% 52%; /* Champagne Gold */
+    --luxury-navy: 215 22% 17%; /* Charcoal Black */
+    --luxury-charcoal: 215 22% 17%; /* Charcoal Black */
+    --luxury-cream: 0 0% 98%; /* Soft White */
+    --luxury-accent: 210 50% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-luxury-softwhite text-foreground;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+  }
+  
+  /* Enhanced typography */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight text-luxury-charcoal;
+  }
+  
+  h1 {
+    @apply text-3xl lg:text-4xl;
+  }
+  
+  h2 {
+    @apply text-2xl lg:text-3xl;
+  }
+  
+  h3 {
+    @apply text-xl lg:text-2xl;
+  }
+  
+  /* Luxury touches */
+  .luxury-card {
+    @apply bg-white border border-gray-100 rounded-lg shadow-md transition-all duration-300 hover:shadow-lg;
+  }
+  
+  .luxury-gradient {
+    @apply bg-gradient-to-r from-luxury-charcoal to-gray-700 text-white;
+  }
+  
+  .gold-accent {
+    @apply text-luxury-gold;
+  }
+  
+  .animate-fade-in {
+    @apply animate-[fadeIn_0.6s_ease-out_forwards];
+  }
+  
+  .gold-border {
+    @apply border border-luxury-gold;
+  }
+  
+  .gold-shadow {
+    @apply shadow-gold;
+  }
+  
+  .premium-button {
+    @apply bg-luxury-gold text-luxury-charcoal hover:bg-amber-500 transition-all duration-200 font-medium shadow-md hover:shadow-lg;
+  }
+  
+  .premium-card {
+    @apply bg-white border border-gray-100 rounded-xl shadow-md hover:shadow-lg transition-all duration-300;
+  }
+  
+  .premium-input {
+    @apply border-gray-200 rounded-lg focus:ring-luxury-gold focus:border-luxury-gold;
+  }
+  
+  @keyframes fadeIn {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  
+  @keyframes slideIn {
+    0% { transform: translateX(-20px); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  
+  .animate-slide-in {
+    animation: slideIn 0.5s ease-out forwards;
+  }
+}
