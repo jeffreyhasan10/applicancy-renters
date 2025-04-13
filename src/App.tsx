@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -21,6 +20,7 @@ import Profile from "./pages/Profile";
 import Index from "./pages/Index";
 import PaymentVerification from "./pages/PaymentVerification";
 import PaymentLinks from "./pages/PaymentLinks";
+import ChangePassword from "./pages/ChangePassword"; // Add this import
 
 // Create a client with better error handling and staleTime
 const queryClient = new QueryClient({
@@ -120,6 +120,13 @@ const App = () => (
               <ProtectedRoute>
                 <MainLayout>
                   <Profile />
+                </MainLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/change-password" element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <ChangePassword />
                 </MainLayout>
               </ProtectedRoute>
             } />

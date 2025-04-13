@@ -9,17 +9,17 @@ interface AuthContextType {
   session: Session | null;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  changePassword: (newPassword: string) => Promise<void>;
   loading: boolean;
   isAdmin: boolean;
 }
 
-// Updated admin credentials
+// Admin email for role checking
 const DEFAULT_ADMIN_EMAIL = "applicanyrenters@gmail.com";
-const DEFAULT_ADMIN_PASSWORD = "Rental@123";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Fix #1: Export the context hook separately to be compatible with Fast Refresh
+// Export the context hook separately to be compatible with Fast Refresh
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -34,7 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
-  // Fix #2: Track if we've shown a sign-in toast to prevent duplicates
   const [signInToastShown, setSignInToastShown] = useState(false);
   const navigate = useNavigate();
 
@@ -44,7 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         console.log("Existing session check:", session?.user?.email);
-        
+
         if (session) {
           setSession(session);
           setUser(session.user);
@@ -64,12 +63,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         console.log("Auth state changed:", event, session?.user?.email);
-        
-        if (event === 'SIGNED_IN') {
+
+        if (event === "SIGNED_IN") {
           setSession(session);
           setUser(session?.user ?? null);
           setIsAdmin(session?.user?.email === DEFAULT_ADMIN_EMAIL);
-          
+
           // Only show toast and navigate if initial check is done AND we haven't shown toast yet
           if (initialCheckDone && !signInToastShown) {
             console.log("User signed in, redirecting to dashboard");
@@ -78,20 +77,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               description: "You have successfully signed in.",
             });
             setSignInToastShown(true); // Prevent showing toast again
-            navigate('/');
+            navigate("/");
           }
-        } else if (event === 'SIGNED_OUT') {
+        } else if (event === "SIGNED_OUT") {
           setSession(null);
           setUser(null);
           setIsAdmin(false);
           setSignInToastShown(false); // Reset toast flag on sign out
-          
+
           console.log("User signed out, redirecting to login");
           toast({
             title: "Signed out",
             description: "You have successfully signed out.",
           });
-          navigate('/login');
+          navigate("/login");
         }
       }
     );
@@ -104,35 +103,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     try {
-      // Use default admin credentials if none provided
-      const loginEmail = email.trim() || DEFAULT_ADMIN_EMAIL;
-      const loginPassword = password || DEFAULT_ADMIN_PASSWORD;
-      
+      if (!email || !password) {
+        throw new Error("Email and password are required");
+      }
+
+      const loginEmail = email.trim();
       console.log("Attempting sign in with:", loginEmail);
-      
-      // Try signing in first
+
+      // Try signing in
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: loginEmail,
-        password: loginPassword,
+        password,
       });
 
       console.log("Sign in response:", data?.user?.email);
 
-      // If sign-in fails with invalid credentials, try to create the account
+      // If sign-in fails with invalid credentials, try to create the account for admin email
       if (signInError) {
         console.log("Sign in error:", signInError.message);
-        
+
         if (loginEmail === DEFAULT_ADMIN_EMAIL) {
           console.log("Creating admin account...");
-          // Create the admin account - use proper formatting for the email
           const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: loginEmail,
-            password: loginPassword,
+            password,
             options: {
               data: {
                 role: "admin",
-              }
-            }
+              },
+            },
           });
 
           console.log("Sign up response:", signUpData?.user?.email);
@@ -145,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Try signing in again after account creation
           const { error: retryError } = await supabase.auth.signInWithPassword({
             email: loginEmail,
-            password: loginPassword,
+            password,
           });
 
           if (retryError) {
@@ -183,8 +182,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const changePassword = async (newPassword: string) => {
+    setLoading(true);
+    try {
+      if (!user) {
+        throw new Error("No user is currently signed in");
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        console.error("Password change error:", error);
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "Your password has been updated successfully.",
+      });
+    } catch (error: any) {
+      console.error("Password change error:", error);
+      toast({
+        title: "Password change failed",
+        description: error.message || "An error occurred while changing password",
+        variant: "destructive",
+      });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, signIn, signOut, loading, isAdmin }}>
+    <AuthContext.Provider value={{ user, session, signIn, signOut, changePassword, loading, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );
