@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import PageHeader from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Search, Trash2, MessageSquare, Edit, Building2, Loader2 } from "lucide-react";
+import { PlusCircle, Search, Trash2, MessageSquare, Edit, Building2, Loader2, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -12,6 +13,7 @@ import DeleteConfirmation from "@/components/common/DeleteConfirmation";
 import WhatsAppIntegration from "@/components/integrations/WhatsAppIntegration";
 import RentForm from "@/components/forms/RentForm";
 import { motion } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
 
 interface FlatData {
   id: string;
@@ -19,67 +21,36 @@ interface FlatData {
   name: string;
   address: string;
   monthly_rent_target: number | null;
-  tenants?: {
-    id: string;
-    phone: string;
-  }[] | null;
-}
-
-interface Flat {
-  id: string;
-  created_at: string;
-  name: string;
-  address: string;
-  description: string;
-  monthly_rent: number;
-  deposit: number;
-  bedrooms: number;
-  bathrooms: number;
-  square_footage: number;
-  amenities: string[];
-  tenant_id: string | null;
-  is_available: boolean;
-  property_type: string;
-  year_built: number;
-  parking_spots: number;
-  lease_terms: string;
-  images: string[];
-  documents: string[];
-  tenants?: {
-    id: string;
-    phone: string;
-  }[] | null;
+  description: string | null;
+  tenants?: { id: string; phone: string; name: string }[] | null;
+  property_tags?: { id: string; tag_name: string }[] | null;
 }
 
 const Flats = () => {
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [rentOpen, setRentOpen] = useState(false);
-  const [selectedFlat, setSelectedFlat] = useState<Flat | null>(null);
+  const [selectedFlat, setSelectedFlat] = useState<FlatData | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [flatToDelete, setFlatToDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
   const { toast } = useToast();
-
   const queryClient = useQueryClient();
 
   // Fetch flats
   const { data: flats, isLoading, isError, error } = useQuery<FlatData[], Error>({
     queryKey: ["flats"],
     queryFn: async () => {
-      const { data, error } = await typedSupabase.from("flats").select(`
-        *,
-        tenants (
-          id,
-          phone
-        )
-      `);
-      if (error) {
-        console.error("Error fetching flats:", error);
-        throw new Error(error.message);
-      }
+      const { data, error } = await typedSupabase
+        .from("flats")
+        .select(`
+          id, created_at, name, address, monthly_rent_target, description,
+          tenants (id, phone, name),
+          property_tags (id, tag_name)
+        `);
+      if (error) throw new Error(error.message || "Failed to fetch flats");
       return data as FlatData[];
     },
   });
@@ -87,56 +58,47 @@ const Flats = () => {
   // Mutation for deleting a flat
   const deleteFlatMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
-      const { data: tenants } = await typedSupabase
+      // Check for associated tenants
+      const { data: tenants, error: tenantsError } = await typedSupabase
         .from("tenants")
         .select("id")
         .eq("flat_id", id);
+      if (tenantsError) throw new Error(tenantsError.message);
 
       if (tenants && tenants.length > 0) {
         const tenantIds = tenants.map((tenant) => tenant.id);
-        if (tenantIds.length > 0) {
-          const { error: rentsError } = await typedSupabase
-            .from("rents")
-            .delete()
-            .in("tenant_id", tenantIds);
-          if (rentsError) {
-            console.error("Error deleting associated rents:", rentsError);
-            throw new Error(rentsError.message);
-          }
-        }
+        // Delete associated rents
+        const { error: rentsError } = await typedSupabase
+          .from("rents")
+          .delete()
+          .in("tenant_id", tenantIds);
+        if (rentsError) throw new Error(rentsError.message);
+
+        // Unassign tenants
         const { error: tenantsError } = await typedSupabase
           .from("tenants")
           .update({ flat_id: null })
           .in("id", tenantIds);
-        if (tenantsError) {
-          console.error("Error updating tenants:", tenantsError);
-          throw new Error(tenantsError.message);
-        }
+        if (tenantsError) throw new Error(tenantsError.message);
       }
 
-      const { error: photosError } = await typedSupabase
-        .from("property_photos")
-        .delete()
-        .eq("flat_id", id);
-      if (photosError) {
-        console.error("Error deleting associated photos:", photosError);
-        throw new Error(photosError.message);
-      }
-
+      // Delete associated documents
       const { error: docsError } = await typedSupabase
         .from("property_documents")
         .delete()
         .eq("flat_id", id);
-      if (docsError) {
-        console.error("Error deleting associated documents:", docsError);
-        throw new Error(docsError.message);
-      }
+      if (docsError) throw new Error(docsError.message);
 
+      // Delete associated tags
+      const { error: tagsError } = await typedSupabase
+        .from("property_tags")
+        .delete()
+        .eq("flat_id", id);
+      if (tagsError) throw new Error(tagsError.message);
+
+      // Delete flat
       const { error } = await typedSupabase.from("flats").delete().eq("id", id);
-      if (error) {
-        console.error("Error deleting flat:", error);
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["flats"] });
@@ -153,7 +115,6 @@ const Flats = () => {
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to delete property.",
-        className: "bg-red-500 text-white border-none",
       });
       setDeleteOpen(false);
     },
@@ -162,38 +123,13 @@ const Flats = () => {
   const filteredFlats = React.useMemo(() => {
     if (!flats) return [];
     return flats.filter((flat) => {
-      const searchStr = `${flat.name} ${flat.address}`.toLowerCase();
+      const searchStr = `${flat.name} ${flat.address} ${flat.property_tags?.map((t) => t.tag_name).join(" ")}`.toLowerCase();
       return searchStr.includes(searchQuery.toLowerCase());
     });
   }, [flats, searchQuery]);
 
-  const mapFlatToUIModel = (flat: FlatData): Flat => {
-    return {
-      id: flat.id,
-      created_at: flat.created_at,
-      name: flat.name,
-      address: flat.address,
-      description: "",
-      monthly_rent: flat.monthly_rent_target ?? 0,
-      deposit: 0,
-      bedrooms: 0,
-      bathrooms: 0,
-      square_footage: 0,
-      amenities: [],
-      tenant_id: null,
-      is_available: true,
-      property_type: "",
-      year_built: 0,
-      parking_spots: 0,
-      lease_terms: "",
-      images: [],
-      documents: [],
-      tenants: flat.tenants,
-    };
-  };
-
   const handleEdit = (flat: FlatData) => {
-    setSelectedFlat(mapFlatToUIModel(flat));
+    setSelectedFlat(flat);
     setEditOpen(true);
   };
 
@@ -219,9 +155,14 @@ const Flats = () => {
   };
 
   const handleRentRecord = (flat: FlatData) => {
-    setSelectedFlat(mapFlatToUIModel(flat));
+    setSelectedFlat(flat);
     setRentOpen(true);
   };
+
+  // Refetch flats when the component is mounted or any dialog is closed
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["flats"] });
+  }, [open, editOpen, rentOpen, deleteOpen, whatsappOpen]);
 
   if (isLoading) {
     return (
@@ -314,7 +255,7 @@ const Flats = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-luxury-charcoal" />
               <Input
                 type="search"
-                placeholder="Search properties..."
+                placeholder="Search properties or tags..."
                 className="pl-10 border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -363,6 +304,9 @@ const Flats = () => {
                         Rent
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                        Tags
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
                         Status
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
@@ -391,6 +335,19 @@ const Flats = () => {
                             : "Not set"}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal">
+                          {flat.property_tags && flat.property_tags.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {flat.property_tags.map((tag) => (
+                                <Badge key={tag.id} variant="secondary" className="text-xs">
+                                  {tag.tag_name}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            "No tags"
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal">
                           <span
                             className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                               flat.tenants && flat.tenants.length > 0
@@ -403,6 +360,17 @@ const Flats = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex justify-end space-x-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              asChild
+                              title="View Property"
+                              className="text-luxury-charcoal hover:bg-luxury-gold/20"
+                            >
+                              <Link to={`/flat/${flat.id}`}>
+                                <Eye className="h-4 w-4" />
+                              </Link>
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -425,7 +393,7 @@ const Flats = () => {
                               variant="destructive"
                               size="icon"
                               onClick={() => handleDelete(flat.id)}
-                              disabled={deleteFlatMutation.isLoading}
+                              disabled={deleteFlatMutation.isPending}
                               title="Delete Property"
                               className="bg-red-500 hover:bg-red-600"
                             >
@@ -456,7 +424,18 @@ const Flats = () => {
 
       <FlatForm open={open} onOpenChange={setOpen} />
       {selectedFlat && editOpen && (
-        <FlatForm open={editOpen} onOpenChange={setEditOpen} flat={selectedFlat} />
+        <FlatForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          flat={{
+            id: selectedFlat.id,
+            name: selectedFlat.name,
+            address: selectedFlat.address,
+            monthly_rent_target: selectedFlat.monthly_rent_target ?? 0,
+            description: selectedFlat.description || "",
+            property_tags: selectedFlat.property_tags,
+          }}
+        />
       )}
       {selectedFlat && rentOpen && (
         <RentForm open={rentOpen} onOpenChange={setRentOpen} />
@@ -465,11 +444,11 @@ const Flats = () => {
         title="Delete Property"
         description={`Are you sure you want to delete ${
           flats?.find((flat) => flat.id === flatToDelete)?.name || "this property"
-        }? This action will also remove all associated data including photos, documents, and tenant associations.`}
+        }? This action will also remove all associated data including documents, tags, and tenant associations.`}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         onConfirm={confirmDelete}
-        isLoading={deleteFlatMutation.isLoading}
+        isLoading={deleteFlatMutation.isPending}
         itemName={flats?.find((flat) => flat.id === flatToDelete)?.name || "this property"}
       />
       {whatsappOpen && selectedPhoneNumber && (

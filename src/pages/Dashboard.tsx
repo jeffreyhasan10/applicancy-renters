@@ -3,7 +3,6 @@ import {
   IndianRupee,
   Package2,
   Send,
-  Users2,
   Link,
   Loader2,
 } from "lucide-react";
@@ -14,18 +13,17 @@ import RentCollection from "@/components/dashboard/RentCollection";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/components/ui/use-toast";
-import { Database } from "@/integrations/supabase/types";
-import TenantForm from "@/components/forms/TenantForm";
 import FlatForm from "@/components/forms/FlatForm";
 import RentForm from "@/components/forms/RentForm";
 import InventoryForm from "@/components/forms/InventoryForm";
 import ReminderForm from "@/components/forms/ReminderForm";
+import ExpenseForm from "@/components/forms/ExpenseForm";
 import PageHeader from "@/components/common/PageHeader";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 
 interface DashboardStats {
-  totalTenants: number;
+  totalExpenses: number;
   pendingRents: {
     count: number;
     amount: number;
@@ -47,7 +45,7 @@ interface Stat {
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
-    totalTenants: 0,
+    totalExpenses: 0,
     pendingRents: { count: 0, amount: 0 },
     currentMonthRevenue: 0,
     totalFlats: 0,
@@ -55,11 +53,11 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [modalStates, setModalStates] = useState({
-    tenant: false,
     flat: false,
     rent: false,
     inventory: false,
     reminder: false,
+    expense: false,
   });
 
   const toggleModal = (type: keyof typeof modalStates) => {
@@ -73,13 +71,22 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      const { data: tenantsData, error: tenantsError } = await supabase
-        .from("tenants")
-        .select("id")
-        .eq("is_active", true);
+      // Fetch total expenses
+      const currentYear = new Date().getFullYear();
+      const { data: expensesData, error: expensesError } = await supabase
+        .from("expenses")
+        .select("amount")
+        .gte("date", `${currentYear}-01-01`)
+        .lte("date", `${currentYear}-12-31`);
 
-      if (tenantsError) throw new Error(tenantsError.message);
+      if (expensesError) throw new Error(expensesError.message);
 
+      const totalExpenses = (expensesData || []).reduce(
+        (sum, expense) => sum + (parseFloat(expense.amount) || 0),
+        0
+      );
+
+      // Fetch pending rents
       const currentDate = new Date().toISOString().split("T")[0];
       const { data: pendingRentsData, error: pendingRentsError } = await supabase
         .from("rents")
@@ -94,6 +101,7 @@ export default function Dashboard() {
         0
       );
 
+      // Fetch current month revenue
       const currentMonth = new Date().toISOString().slice(0, 7);
       const { data: revenueData, error: revenueError } = await supabase
         .from("rents")
@@ -107,12 +115,14 @@ export default function Dashboard() {
         .filter((rent) => rent.paid_on?.startsWith(currentMonth))
         .reduce((sum, rent) => sum + (parseFloat(rent.amount) || 0), 0);
 
+      // Fetch total flats
       const { data: flatsData, error: flatsError } = await supabase
         .from("flats")
         .select("id");
 
       if (flatsError) throw new Error(flatsError.message);
 
+      // Fetch occupied flats
       const { data: occupiedFlatsData, error: occupiedFlatsError } = await supabase
         .from("tenants")
         .select("flat_id")
@@ -122,11 +132,15 @@ export default function Dashboard() {
       if (occupiedFlatsError) throw new Error(occupiedFlatsError.message);
 
       const uniqueOccupiedFlats = [
-        ...new Set((occupiedFlatsData || []).map((item) => item.flat_id).filter((id): id is string => !!id)),
+        ...new Set(
+          (occupiedFlatsData || [])
+            .map((item) => item.flat_id)
+            .filter((id): id is string => !!id)
+        ),
       ];
 
       setStats({
-        totalTenants: tenantsData?.length || 0,
+        totalExpenses,
         pendingRents: {
           count: pendingRentsData?.length || 0,
           amount: pendingRentsAmount,
@@ -136,6 +150,7 @@ export default function Dashboard() {
         occupiedFlats: uniqueOccupiedFlats.length,
       });
     } catch (error: any) {
+      console.error("Dashboard fetch error:", error);
       toast({
         title: "Error fetching dashboard data",
         description: error.message || "An unexpected error occurred",
@@ -153,14 +168,19 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
+  const handleFormSuccess = () => {
+    console.log("Form submission succeeded, refreshing dashboard data");
+    fetchDashboardData();
+  };
+
   const formattedStats: Stat[] = [
     {
-      title: "Total Tenants",
-      value: loading ? "..." : stats.totalTenants.toString(),
-      description: "Active tenants",
-      icon: <Users2 className="h-6 w-6 text-luxury-gold" />,
+      title: "Total Expenses",
+      value: loading ? "..." : `₹${stats.totalExpenses.toLocaleString()}`,
+      description: "This year",
+      icon: <IndianRupee className="h-6 w-6 text-luxury-gold" />,
       trendValue: 0,
-      trendText: "from last month",
+      trendText: "from last year",
     },
     {
       title: "Pending Rents",
@@ -193,9 +213,9 @@ export default function Dashboard() {
 
   const quickActions = [
     {
-      icon: <Users2 className="h-6 w-6 text-luxury-charcoal" />,
-      label: "Add Tenant",
-      onClick: () => toggleModal("tenant"),
+      icon: <IndianRupee className="h-6 w-6 text-luxury-charcoal" />,
+      label: "Add Expense",
+      onClick: () => toggleModal("expense"),
     },
     {
       icon: <Building2 className="h-6 w-6 text-luxury-charcoal" />,
@@ -329,35 +349,40 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
-      <TenantForm
-        open={modalStates.tenant}
+      <ExpenseForm
+        open={modalStates.expense}
         onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, tenant: open }))
+          setModalStates((prev) => ({ ...prev, expense: open }))
         }
+        onSuccess={handleFormSuccess}
       />
       <FlatForm
         open={modalStates.flat}
         onOpenChange={(open) =>
           setModalStates((prev) => ({ ...prev, flat: open }))
         }
+        onSuccess={handleFormSuccess}
       />
       <RentForm
         open={modalStates.rent}
         onOpenChange={(open) =>
           setModalStates((prev) => ({ ...prev, rent: open }))
         }
+        onSuccess={handleFormSuccess}
       />
       <InventoryForm
         open={modalStates.inventory}
         onOpenChange={(open) =>
           setModalStates((prev) => ({ ...prev, inventory: open }))
         }
+        onSuccess={handleFormSuccess}
       />
       <ReminderForm
         open={modalStates.reminder}
         onOpenChange={(open) =>
           setModalStates((prev) => ({ ...prev, reminder: open }))
         }
+        onSuccess={handleFormSuccess}
       />
     </motion.div>
   );

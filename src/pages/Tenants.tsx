@@ -120,6 +120,11 @@ export default function Tenants() {
     fetchData();
   }, []);
 
+  // Refetch tenants and flats when the component is mounted or any dialog is closed
+  useEffect(() => {
+    fetchData();
+  }, [formOpen, deleteDialogOpen]);
+
   // Handle delete tenant
   const handleDeleteTenant = async () => {
     if (!tenantToDelete) {

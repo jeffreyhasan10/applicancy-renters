@@ -5,6 +5,7 @@ import {
   MessageSquareWarning,
   Package2,
   Receipt,
+  IndianRupee,
   Settings,
   Users2,
   ChevronRight,
@@ -26,6 +27,7 @@ const navigation = [
   { name: "Payment Links", href: "/payment-links", icon: Link },
   { name: "Inventory", href: "/inventory", icon: Package2 },
   { name: "Reminders", href: "/reminders", icon: MessageSquareWarning },
+  { name: "Expenses", href: "/expenses", icon: IndianRupee }, // Added
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
