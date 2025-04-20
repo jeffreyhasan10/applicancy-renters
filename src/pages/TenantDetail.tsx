@@ -56,6 +56,11 @@ interface Tenant {
     is_paid: boolean;
     paid_on: string | null;
   }[];
+  property_documents?: {
+    id: string;
+    file_path: string;
+    name: string;
+  }[];
   tenant_furniture?: {
     furniture_item_id: string;
     furniture_items: { id: string; name: string };
@@ -72,7 +77,12 @@ export default function TenantDetail() {
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
   const [assignFurnitureOpen, setAssignFurnitureOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", phone: "", email: "" });
+  const [editForm, setEditForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    photo: null as File | null,
+  });
   const [selectedFlat, setSelectedFlat] = useState("");
   const [paymentForm, setPaymentForm] = useState({ amount: "", paidOn: "" });
   const [selectedFurniture, setSelectedFurniture] = useState("");
@@ -137,21 +147,56 @@ export default function TenantDetail() {
     },
   });
 
-  // Edit tenant mutation
+  // Edit tenant mutation with photo upload
   const editTenant = useMutation({
     mutationFn: async ({
       name,
       phone,
       email,
+      photo,
     }: {
       name: string;
       phone: string;
       email: string;
+      photo: File | null;
     }) => {
+      let tenantPhotoUrl = tenant?.tenant_photo;
+
+      // Handle photo upload if a new photo is provided
+      if (photo) {
+        const fileExt = photo.name.split(".").pop();
+        const fileName = `${id}/photo_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await typedSupabase.storage
+          .from("tenant_photos")
+          .upload(fileName, photo, { cacheControl: "3600", upsert: true });
+
+        if (uploadError) {
+          throw new Error(`Photo upload error: ${uploadError.message}`);
+        }
+
+        // Get the public URL of the uploaded photo
+        const { data: publicUrlData } = typedSupabase.storage
+          .from("tenant_photos")
+          .getPublicUrl(fileName);
+
+        if (!publicUrlData) {
+          throw new Error("Failed to retrieve public URL for the uploaded photo");
+        }
+
+        tenantPhotoUrl = publicUrlData.publicUrl;
+      }
+
+      // Update tenant details
       const { error } = await typedSupabase
         .from("tenants")
-        .update({ name, phone, email })
+        .update({
+          name,
+          phone,
+          email: email || null,
+          tenant_photo: tenantPhotoUrl,
+        })
         .eq("id", id);
+
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
@@ -162,6 +207,7 @@ export default function TenantDetail() {
         className: "bg-luxury-gold text-luxury-charcoal border-none",
       });
       setEditOpen(false);
+      setEditForm({ name: "", phone: "", email: "", photo: null });
     },
     onError: (error: Error) => {
       toast({
@@ -442,6 +488,7 @@ export default function TenantDetail() {
                     name: tenant.name,
                     phone: tenant.phone,
                     email: tenant.email || "",
+                    photo: null,
                   });
                   setEditOpen(true);
                 }}
@@ -874,11 +921,33 @@ export default function TenantDetail() {
                 className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
               />
             </div>
+            <div>
+              <Label htmlFor="photo" className="text-luxury-charcoal">
+                Tenant Photo (Optional)
+              </Label>
+              <Input
+                id="photo"
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setEditForm({ ...editForm, photo: e.target.files?.[0] || null })
+                }
+                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+              />
+              {editForm.photo && (
+                <p className="text-sm text-luxury-charcoal/70 mt-1">
+                  Selected: {editForm.photo.name}
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setEditOpen(false)}
+              onClick={() => {
+                setEditOpen(false);
+                setEditForm({ name: "", phone: "", email: "", photo: null });
+              }}
               className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
             >
               Cancel
@@ -886,11 +955,13 @@ export default function TenantDetail() {
             <Button
               onClick={() => editTenant.mutate(editForm)}
               disabled={
-                !editForm.name || !editForm.phone || editTenant.isPending
+                !editForm.name ||
+                !editForm.phone ||
+                editTenant.isPending
               }
               className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
             >
-              Save
+              {editTenant.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

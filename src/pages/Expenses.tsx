@@ -1,7 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import PageHeader from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Search, Trash2, Edit, Loader2, FileText, IndianRupee } from "lucide-react"; // Added IndianRupee
+import {
+  PlusCircle,
+  Search,
+  Trash2,
+  Edit,
+  Loader2,
+  FileText,
+  IndianRupee,
+  Calendar,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -10,12 +19,19 @@ import { typedSupabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import DeleteConfirmation from "@/components/common/DeleteConfirmation";
 import { motion } from "framer-motion";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 interface Expense {
   id: string;
   title: string;
-  amount: number | string;
+  amount: number;
   date: string;
   description?: string | null;
   category?: string | null;
@@ -24,21 +40,26 @@ interface Expense {
     name: string;
   } | null;
   receipt_id?: string | null;
+  calendar_event_id?: string | null;
 }
 
-const Expenses = () => {
+const Expenses: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([
+    null,
+    null,
+  ]);
+  const [startDate, endDate] = dateRange;
   const { toast } = useToast();
-
   const queryClient = useQueryClient();
 
   // Fetch expenses
-  const { data: expenses = [], isLoading, isError, error } = useQuery<Expense[], Error>({
+  const { data: expenses = [], isLoading, error } = useQuery<Expense[], Error>({
     queryKey: ["expenses"],
     queryFn: async () => {
       const { data, error } = await typedSupabase
@@ -51,12 +72,11 @@ const Expenses = () => {
         `);
       if (error) {
         console.error("Error fetching expenses:", error);
-        throw new Error(error.message);
+        throw error;
       }
-      // Convert amount to number for consistency
       return data.map((expense) => ({
         ...expense,
-        amount: parseFloat(expense.amount as string) || 0,
+        amount: parseFloat(expense.amount as unknown as string) || 0,
         description: expense.description || null,
       })) as Expense[];
     },
@@ -65,16 +85,27 @@ const Expenses = () => {
   // Mutation for deleting an expense
   const deleteExpenseMutation = useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
-      // Fetch expense to check for receipt
       const { data: expense, error: expenseError } = await typedSupabase
         .from("expenses")
-        .select("receipt_id")
+        .select("receipt_id, calendar_event_id")
         .eq("id", id)
         .single();
 
       if (expenseError) {
         console.error("Error fetching expense for deletion:", expenseError);
-        throw new Error(expenseError.message);
+        throw expenseError;
+      }
+
+      // Delete associated calendar event if exists
+      if (expense?.calendar_event_id) {
+        const { error: eventError } = await typedSupabase
+          .from("calendar_events")
+          .delete()
+          .eq("id", expense.calendar_event_id);
+        if (eventError) {
+          console.error("Error deleting calendar event:", eventError);
+          throw eventError;
+        }
       }
 
       if (expense?.receipt_id) {
@@ -86,7 +117,7 @@ const Expenses = () => {
 
         if (docFetchError) {
           console.error("Error fetching receipt document:", docFetchError);
-          throw new Error(docFetchError.message);
+          throw docFetchError;
         }
 
         if (doc?.file_path) {
@@ -95,7 +126,7 @@ const Expenses = () => {
             .remove([doc.file_path]);
           if (storageError) {
             console.error("Error deleting receipt from storage:", storageError);
-            throw new Error(storageError.message);
+            throw storageError;
           }
         }
 
@@ -105,7 +136,7 @@ const Expenses = () => {
           .eq("id", expense.receipt_id);
         if (docError) {
           console.error("Error deleting receipt document:", docError);
-          throw new Error(docError.message);
+          throw docError;
         }
       }
 
@@ -115,12 +146,12 @@ const Expenses = () => {
         .eq("id", id);
       if (error) {
         console.error("Error deleting expense:", error);
-        throw new Error(error.message);
+        throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] }); // Ensure dashboard stats update
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       toast({
         title: "Success",
         description: "Expense deleted successfully.",
@@ -140,13 +171,20 @@ const Expenses = () => {
     },
   });
 
-  // Filter expenses based on search query
-  const filteredExpenses = React.useMemo(() => {
+  // Filter expenses based on search query and date range
+  const filteredExpenses = useMemo(() => {
     return expenses.filter((expense) => {
       const searchStr = `${expense.title} ${expense.description || ""}`.toLowerCase();
-      return searchStr.includes(searchQuery.toLowerCase());
+      const matchesSearch = searchStr.includes(searchQuery.toLowerCase());
+
+      const expenseDate = new Date(expense.date);
+      const matchesDateRange =
+        (!startDate || expenseDate >= startDate) &&
+        (!endDate || expenseDate <= endDate);
+
+      return matchesSearch && matchesDateRange;
     });
-  }, [expenses, searchQuery]);
+  }, [expenses, searchQuery, startDate, endDate]);
 
   const handleEdit = (expense: Expense) => {
     setSelectedExpense(expense);
@@ -205,7 +243,7 @@ const Expenses = () => {
     );
   }
 
-  if (isError) {
+  if (error) {
     return (
       <motion.div
         initial={{ opacity: 0 }}
@@ -220,7 +258,7 @@ const Expenses = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-red-600">{error?.message || "An error occurred while fetching expenses."}</p>
+            <p className="text-red-600">{error.message || "An error occurred while fetching expenses."}</p>
             <p className="mt-4 text-luxury-charcoal">Please try refreshing the page or contact support if the issue persists.</p>
             <Button
               variant="outline"
@@ -265,16 +303,33 @@ const Expenses = () => {
               transition={{ delay: 0.1 }}
               className="grid gap-4"
             >
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-luxury-charcoal" />
-                <Input
-                  type="search"
-                  placeholder="Search expenses..."
-                  className="pl-10 border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  aria-label="Search expenses"
-                />
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-luxury-charcoal" />
+                  <Input
+                    type="search"
+                    placeholder="Search expenses..."
+                    className="pl-10 border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="Search expenses"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-luxury-charcoal" />
+                  <DatePicker
+                    selectsRange
+                    startDate={startDate}
+                    endDate={endDate}
+                    onChange={(update: [Date | null, Date | null]) => {
+                      setDateRange(update);
+                    }}
+                    isClearable
+                    placeholderText="Select date range"
+                    className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold rounded-md p-2 w-full sm:w-auto"
+                    wrapperClassName="w-full sm:w-auto"
+                  />
+                </div>
               </div>
 
               {filteredExpenses.length === 0 ? (
@@ -289,7 +344,9 @@ const Expenses = () => {
                     No expenses found
                   </h3>
                   <p className="mt-1 text-sm text-luxury-charcoal/70">
-                    {searchQuery ? "No expenses match your search criteria." : "Get started by adding your first expense."}
+                    {searchQuery || startDate || endDate
+                      ? "No expenses match your search or date criteria."
+                      : "Get started by adding your first expense."}
                   </p>
                   <Button
                     onClick={() => setOpen(true)}
@@ -396,18 +453,33 @@ const Expenses = () => {
                                   variant="outline"
                                   size="icon"
                                   onClick={async () => {
-                                    const { data } = await typedSupabase.storage
-                                      .from("property_documents")
-                                      .getPublicUrl(
-                                        (
-                                          await typedSupabase
-                                            .from("property_documents")
-                                            .select("file_path")
-                                            .eq("id", expense.receipt_id)
-                                            .single()
-                                        ).data!.file_path
-                                      );
-                                    window.open(data.publicUrl, "_blank");
+                                    try {
+                                      const { data: doc, error: docFetchError } = await typedSupabase
+                                        .from("property_documents")
+                                        .select("file_path")
+                                        .eq("id", expense.receipt_id)
+                                        .single();
+              
+                                      if (docFetchError || !doc?.file_path) {
+                                        throw new Error("Failed to fetch receipt file path.");
+                                      }
+              
+                                      const { data: publicUrlData } = typedSupabase.storage
+                                        .from("property_documents")
+                                        .getPublicUrl(doc.file_path);
+              
+                                      if (!publicUrlData.publicUrl) {
+                                        throw new Error("Failed to generate public URL for receipt.");
+                                      }
+              
+                                      window.open(publicUrlData.publicUrl, "_blank");
+                                    } catch (error: any) {
+                                      toast({
+                                        variant: "destructive",
+                                        title: "Error",
+                                        description: error.message || "Failed to view receipt.",
+                                      });
+                                    }
                                   }}
                                   title="View Receipt"
                                   className="text-luxury-charcoal hover:bg-luxury-gold/20"
@@ -430,7 +502,7 @@ const Expenses = () => {
                                 variant="destructive"
                                 size="icon"
                                 onClick={() => handleDelete(expense.id)}
-                                disabled={deleteExpenseMutation.isLoading}
+                                disabled={deleteExpenseMutation.isPending}
                                 title="Delete Expense"
                                 className="bg-red-500 hover:bg-red-600"
                                 aria-label="Delete expense"
@@ -461,11 +533,11 @@ const Expenses = () => {
           title="Delete Expense"
           description={`Are you sure you want to delete ${
             expenses.find((expense) => expense.id === expenseToDelete)?.title || "this expense"
-          }? This action cannot be undone and will remove any associated receipt.`}
+          }? This action cannot be undone and will remove any associated receipt and calendar event.`}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
           onConfirm={confirmDelete}
-          isLoading={deleteExpenseMutation.isLoading}
+          isLoading={deleteExpenseMutation.isPending}
           itemName={expenses.find((expense) => expense.id === expenseToDelete)?.title || "this expense"}
         />
       </motion.div>

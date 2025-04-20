@@ -19,6 +19,8 @@ import {
   Wrench,
   Send,
   Link as LinkIcon,
+  Filter,
+  DollarSign,
 } from "lucide-react";
 import {
   Card,
@@ -49,19 +51,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea"; // Added for maintenance request description
+import { Textarea } from "@/components/ui/textarea";
 import FlatForm from "@/components/forms/FlatForm";
 import WhatsAppIntegration from "@/components/integrations/WhatsAppIntegration";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 
 interface Flat {
   id: string;
   name: string;
   address: string;
-  monthly_rent_target: number; // Schema: NOT NULL
+  monthly_rent_target: number;
   description: string | null;
   created_at: string;
   security_deposit: number | null;
@@ -72,6 +74,7 @@ interface Flat {
         file_path: string;
         name: string;
         uploaded_at: string | null;
+        document_type: string;
       }[]
     | null;
   property_tags: { id: string; tag_name: string }[] | null;
@@ -98,6 +101,27 @@ interface MaintenanceForm {
   description: string;
   priority: string;
   tenant_id: string | null;
+}
+
+interface Expense {
+  id: string;
+  flat_id: string;
+  title: string;
+  amount: number;
+  date: string;
+  description: string | null;
+  category: string | null;
+  created_at: string;
+  receipt_id: string | null;
+  receipt?: { id: string; file_path: string; name: string } | null;
+}
+
+interface ExpenseFilter {
+  startDate: string;
+  endDate: string;
+  category: string;
+  minAmount: string;
+  maxAmount: string;
 }
 
 interface Rent {
@@ -137,9 +161,9 @@ const FlatDetail = () => {
   const [assignTenantOpen, setAssignTenantOpen] = useState(false);
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
   const [deleteDocOpen, setDeleteDocOpen] = useState(false);
-  const [createMaintenanceOpen, setCreateMaintenanceOpen] = useState(false); // New state for maintenance dialog
+  const [createMaintenanceOpen, setCreateMaintenanceOpen] = useState(false);
   const [sendPaymentLinksOpen, setSendPaymentLinksOpen] = useState(false);
-  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false); // Confirmation for closing payment links
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [tenantForm, setTenantForm] = useState<TenantForm>({
     name: "",
@@ -152,10 +176,18 @@ const FlatDetail = () => {
     priority: "medium",
     tenant_id: null,
   });
+  const [expenseFilter, setExpenseFilter] = useState<ExpenseFilter>({
+    startDate: format(subDays(new Date(), 30), "yyyy-MM-dd"),
+    endDate: format(new Date(), "yyyy-MM-dd"),
+    category: "",
+    minAmount: "",
+    maxAmount: "",
+  });
   const [selectedTenant, setSelectedTenant] = useState<string>("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [docName, setDocName] = useState<string>("");
-  const [docType, setDocType] = useState<string>("other"); // New state for document type
+  const [tenantPhoto, setTenantPhoto] = useState<File | null>(null);
+  const [docType, setDocType] = useState<string>("other");
   const [activeTab, setActiveTab] = useState("details");
   const [paymentLinksData, setPaymentLinksData] = useState<PaymentLinkData[]>(
     []
@@ -164,17 +196,25 @@ const FlatDetail = () => {
   const [rentDescription, setRentDescription] =
     useState<string>("Rent Payment");
   const [expiryDays, setExpiryDays] = useState<string>("7");
-  const [page, setPage] = useState(1); // Pagination state
+  const [page, setPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Refetch flat details when the component is mounted or any dialog is closed
+  // Refetch flat details when dialogs are closed
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ["flat", id] });
-  }, [editOpen, addTenantOpen, assignTenantOpen, uploadDocOpen, deleteDocOpen, createMaintenanceOpen, sendPaymentLinksOpen]);
+  }, [
+    editOpen,
+    addTenantOpen,
+    assignTenantOpen,
+    uploadDocOpen,
+    deleteDocOpen,
+    createMaintenanceOpen,
+    sendPaymentLinksOpen,
+  ]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    setPage(1); // Reset pagination on tab change
+    setPage(1);
   };
 
   // Fetch flat data
@@ -247,6 +287,50 @@ const FlatDetail = () => {
     enabled: !!id,
   });
 
+  // Fetch expenses with pagination and filters
+  const {
+    data: expenses,
+    isLoading: expensesLoading,
+    refetch: refetchExpenses,
+  } = useQuery<Expense[]>({
+    queryKey: ["expenses", id, page, expenseFilter],
+    queryFn: async () => {
+      let query = typedSupabase
+        .from("expenses")
+        .select(
+          `
+          id, flat_id, title, amount, date, description, category, created_at, receipt_id,
+          receipt:property_documents (id, file_path, name)
+        `
+        )
+        .eq("flat_id", id)
+        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
+        .order("date", { ascending: false });
+
+      // Apply filters
+      if (expenseFilter.startDate) {
+        query = query.gte("date", expenseFilter.startDate);
+      }
+      if (expenseFilter.endDate) {
+        query = query.lte("date", expenseFilter.endDate);
+      }
+      if (expenseFilter.category) {
+        query = query.eq("category", expenseFilter.category);
+      }
+      if (expenseFilter.minAmount) {
+        query = query.gte("amount", Number(expenseFilter.minAmount));
+      }
+      if (expenseFilter.maxAmount) {
+        query = query.lte("amount", Number(expenseFilter.maxAmount));
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!id,
+  });
+
   // Fetch rents with pagination
   const { data: rents, isLoading: rentsLoading } = useQuery<Rent[]>({
     queryKey: ["rents", id, page],
@@ -272,6 +356,18 @@ const FlatDetail = () => {
   // Add tenant mutation
   const addTenantMutation = useMutation({
     mutationFn: async ({ name, phone, email }: TenantForm) => {
+      let photoPath: string | null = null;
+
+      if (tenantPhoto) {
+        const fileExt = tenantPhoto.name.split(".").pop();
+        const fileName = `${id}/tenant_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await typedSupabase.storage
+          .from("tenant_photos")
+          .upload(fileName, tenantPhoto);
+        if (uploadError) throw new Error(uploadError.message);
+        photoPath = fileName;
+      }
+
       const { data, error } = await typedSupabase
         .from("tenants")
         .insert({
@@ -281,6 +377,7 @@ const FlatDetail = () => {
           flat_id: id,
           start_date: new Date().toISOString().split("T")[0],
           is_active: true,
+          tenant_photo: photoPath,
         })
         .select()
         .single();
@@ -297,6 +394,7 @@ const FlatDetail = () => {
       });
       setAddTenantOpen(false);
       setTenantForm({ name: "", phone: "", email: "" });
+      setTenantPhoto(null);
     },
     onError: (error: Error) => {
       toast({
@@ -341,10 +439,9 @@ const FlatDetail = () => {
     },
   });
 
-  // Unassign tenant mutation (new feature)
+  // Unassign tenant mutation
   const unassignTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
-      // Optional: Verify tenant exists
       const { data: tenant, error: fetchError } = await typedSupabase
         .from("tenants")
         .select("id")
@@ -373,7 +470,6 @@ const FlatDetail = () => {
       });
     },
     onError: (error: Error) => {
-      console.error("Unassign tenant error:", error);
       toast({
         variant: "destructive",
         title: "Error",
@@ -783,7 +879,7 @@ const FlatDetail = () => {
         className="w-full"
         aria-label="Property tabs"
       >
-        <TabsList className="grid grid-cols-5 mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1">
+        <TabsList className="grid grid-cols-6 mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1">
           <TabsTrigger
             value="details"
             className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
@@ -819,6 +915,12 @@ const FlatDetail = () => {
             {maintenanceRequests?.length
               ? `(${maintenanceRequests.length})`
               : ""}
+          </TabsTrigger>
+          <TabsTrigger
+            value="expenses"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+          >
+            Expenses {expenses?.length ? `(${expenses.length})` : ""}
           </TabsTrigger>
         </TabsList>
 
@@ -1301,6 +1403,15 @@ const FlatDetail = () => {
                         >
                           <Wrench className="h-4 w-4 mr-2" />
                           Maintenance Requests
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("expenses")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View expenses"
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          View Expenses
                         </Button>
                       </div>
 
@@ -1801,7 +1912,19 @@ const FlatDetail = () => {
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                        <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
+                        <svg
+                          className="h-5 w-5 mr-2 text-luxury-gold"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 6h16M4 12h16m-7 6h7"
+                          />
+                        </svg>
                         Rent Actions
                       </CardTitle>
                     </CardHeader>
@@ -1816,31 +1939,31 @@ const FlatDetail = () => {
                           Create Rent Invoice
                         </Button>
                         <Button
+                          onClick={() => handleTabChange("tenants")}
                           variant="outline"
                           className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
-                          disabled
-                          aria-label="View payment history (coming soon)"
+                          aria-label="Manage tenants"
                         >
-                          <svg
-                            className="h-4 w-4 mr-2"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                            />
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                            />
-                          </svg>
-                          View Payment History
+                          <Users2 className="h-4 w-4 mr-2" />
+                          Manage Tenants
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("maintenance")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View maintenance requests"
+                        >
+                          <Wrench className="h-4 w-4 mr-2" />
+                          Maintenance Requests
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("expenses")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View expenses"
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          View Expenses
                         </Button>
                       </div>
                     </CardContent>
@@ -1854,10 +1977,21 @@ const FlatDetail = () => {
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
-                      <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                        <Wrench className="h-5 w-5 mr-2 text-luxury-gold" />
-                        Maintenance Requests
-                      </CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                          <Wrench className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Maintenance Requests
+                        </CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCreateMaintenanceOpen(true)}
+                          className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                          aria-label="Create maintenance request"
+                        >
+                          <FilePlus className="h-4 w-4 mr-1" /> New Request
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent className="p-6">
                       {maintenanceLoading ? (
@@ -1870,7 +2004,6 @@ const FlatDetail = () => {
                               <div className="space-y-2">
                                 <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
                                 <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
-                                <div className="h-3 bg-luxury-cream/50 rounded w-1/3"></div>
                               </div>
                             </div>
                           ))}
@@ -1878,81 +2011,71 @@ const FlatDetail = () => {
                       ) : maintenanceRequests &&
                         maintenanceRequests.length > 0 ? (
                         <ul className="space-y-6">
-                          {maintenanceRequests
-                            .slice(
-                              (page - 1) * itemsPerPage,
-                              page * itemsPerPage
-                            )
-                            .map((request) => (
-                              <li
-                                key={request.id}
-                                className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
-                              >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                  <div>
-                                    <h3 className="font-medium text-luxury-charcoal">
-                                      {request.title}
-                                    </h3>
-                                    {request.description && (
-                                      <p className="text-sm text-luxury-charcoal/70 mt-1">
-                                        {request.description}
-                                      </p>
-                                    )}
-                                    <p className="text-sm text-luxury-charcoal/70 mt-1">
-                                      Reported:{" "}
-                                      {request.created_at
-                                        ? new Date(
-                                            request.created_at
-                                          ).toLocaleDateString()
-                                        : "N/A"}
-                                    </p>
-                                    <p className="text-sm text-luxury-charcoal/70 mt-1">
-                                      Tenant:{" "}
-                                      {request.tenant?.name ||
-                                        "Property Manager"}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center space-x-2 mt-4 sm:mt-0">
-                                    <Badge
-                                      variant={
-                                        request.status === "open"
-                                          ? "default"
-                                          : request.status === "in_progress"
-                                          ? "secondary"
-                                          : "outline"
-                                      }
-                                      className={
-                                        request.status === "open"
-                                          ? "bg-amber-50 text-amber-600 border-amber-200"
-                                          : request.status === "in_progress"
-                                          ? "bg-blue-50 text-blue-600 border-blue-200"
-                                          : "bg-emerald-50 text-emerald-600 border-emerald-200"
-                                      }
-                                    >
-                                      {request.status.replace("_", " ")}
-                                    </Badge>
-                                    <Badge
-                                      variant={
-                                        request.priority === "high"
-                                          ? "destructive"
-                                          : request.priority === "medium"
-                                          ? "default"
-                                          : "secondary"
-                                      }
-                                      className={
-                                        request.priority === "high"
-                                          ? "bg-red-50 text-red-600 border-red-200"
-                                          : request.priority === "medium"
-                                          ? "bg-orange-50 text-orange-600 border-orange-200"
-                                          : "bg-green-50 text-green-600 border-green-200"
-                                      }
-                                    >
-                                      {request.priority}
-                                    </Badge>
-                                  </div>
+                          {maintenanceRequests.map((request) => (
+                            <li
+                              key={request.id}
+                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                                <div>
+                                  <h3 className="font-medium text-luxury-charcoal">
+                                    {request.title}
+                                  </h3>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    {request.description || "No description"}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Reported by:{" "}
+                                    {request.tenant?.name || "Property Manager"}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Created:{" "}
+                                    {new Date(
+                                      request.created_at
+                                    ).toLocaleDateString()}
+                                  </p>
                                 </div>
-                              </li>
-                            ))}
+                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                  <Badge
+                                    variant={
+                                      request.status === "open"
+                                        ? "destructive"
+                                        : request.status === "in_progress"
+                                        ? "default"
+                                        : "secondary"
+                                    }
+                                    className={
+                                      request.status === "open"
+                                        ? "bg-red-50 text-red-600 border-red-200"
+                                        : request.status === "in_progress"
+                                        ? "bg-amber-50 text-amber-600 border-amber-200"
+                                        : "bg-emerald-50 text-emerald-600 border-emerald-200"
+                                    }
+                                  >
+                                    {request.status.replace("_", " ")}
+                                  </Badge>
+                                  <Badge
+                                    variant={
+                                      request.priority === "high"
+                                        ? "destructive"
+                                        : request.priority === "medium"
+                                        ? "default"
+                                        : "secondary"
+                                    }
+                                    className={
+                                      request.priority === "high"
+                                        ? "bg-red-100 text-red-700 border-red-200"
+                                        : request.priority === "medium"
+                                        ? "bg-amber-100 text-amber-700 border-amber-200"
+                                        : "bg-blue-100 text-blue-700 border-blue-200"
+                                    }
+                                  >
+                                    {request.priority}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
                         </ul>
                       ) : (
                         <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
@@ -1967,10 +2090,10 @@ const FlatDetail = () => {
                           <Button
                             onClick={() => setCreateMaintenanceOpen(true)}
                             className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                            aria-label="Create maintenance request"
+                            aria-label="Create new maintenance request"
                           >
-                            <Wrench className="h-4 w-4 mr-2" />
-                            Create Request
+                            <FilePlus className="h-4 w-4 mr-2" />
+                            New Maintenance Request
                           </Button>
                         </div>
                       )}
@@ -2007,7 +2130,19 @@ const FlatDetail = () => {
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                        <Wrench className="h-5 w-5 mr-2 text-luxury-gold" />
+                        <svg
+                          className="h-5 w-5 mr-2 text-luxury-gold"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 6h16M4 12h16m-7 6h7"
+                          />
+                        </svg>
                         Maintenance Actions
                       </CardTitle>
                     </CardHeader>
@@ -2018,8 +2153,359 @@ const FlatDetail = () => {
                           className="w-full bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 justify-start"
                           aria-label="Create new maintenance request"
                         >
+                          <FilePlus className="h-4 w-4 mr-2" />
+                          New Maintenance Request
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("tenants")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage tenants"
+                        >
+                          <Users2 className="h-4 w-4 mr-2" />
+                          Manage Tenants
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("rents")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage rent collection"
+                        >
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Rent Collection
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("expenses")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View expenses"
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          View Expenses
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="expenses" className="mt-0">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2">
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                          <DollarSign className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Expenses
+                        </CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTabChange("expenses")}
+                          className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                          aria-label="Filter expenses"
+                        >
+                          <Filter className="h-4 w-4 mr-1" /> Filter
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      {/* Expense Filters */}
+                      <div className="mb-6 p-4 bg-luxury-cream/20 border border-luxury-cream rounded-lg">
+                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4">
+                          Filter Expenses
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div>
+                            <Label
+                              htmlFor="startDate"
+                              className="text-luxury-charcoal"
+                            >
+                              Start Date
+                            </Label>
+                            <Input
+                              id="startDate"
+                              type="date"
+                              value={expenseFilter.startDate}
+                              onChange={(e) =>
+                                setExpenseFilter({
+                                  ...expenseFilter,
+                                  startDate: e.target.value,
+                                })
+                              }
+                              className="border-luxury-cream focus:ring-luxury-gold"
+                            />
+                          </div>
+                          <div>
+                            <Label
+                              htmlFor="endDate"
+                              className="text-luxury-charcoal"
+                            >
+                              End Date
+                            </Label>
+                            <Input
+                              id="endDate"
+                              type="date"
+                              value={expenseFilter.endDate}
+                              onChange={(e) =>
+                                setExpenseFilter({
+                                  ...expenseFilter,
+                                  endDate: e.target.value,
+                                })
+                              }
+                              className="border-luxury-cream focus:ring-luxury-gold"
+                            />
+                          </div>
+                          <div>
+                            <Label
+                              htmlFor="category"
+                              className="text-luxury-charcoal"
+                            >
+                              Category
+                            </Label>
+                            <Select
+                              value={expenseFilter.category}
+                              onValueChange={(value) =>
+                                setExpenseFilter({
+                                  ...expenseFilter,
+                                  category: value === "all" ? "" : value, // Map "all" to empty string for filtering
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                id="category"
+                                className="border-luxury-cream"
+                              >
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">
+                                  All Categories
+                                </SelectItem>
+                                <SelectItem value="maintenance">
+                                  Maintenance
+                                </SelectItem>
+                                <SelectItem value="utilities">
+                                  Utilities
+                                </SelectItem>
+                                <SelectItem value="repairs">Repairs</SelectItem>
+                                <SelectItem value="taxes">Taxes</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label
+                              htmlFor="minAmount"
+                              className="text-luxury-charcoal"
+                            >
+                              Min Amount
+                            </Label>
+                            <Input
+                              id="minAmount"
+                              type="number"
+                              value={expenseFilter.minAmount}
+                              onChange={(e) =>
+                                setExpenseFilter({
+                                  ...expenseFilter,
+                                  minAmount: e.target.value,
+                                })
+                              }
+                              placeholder="Min amount"
+                              className="border-luxury-cream focus:ring-luxury-gold"
+                            />
+                          </div>
+                          <div>
+                            <Label
+                              htmlFor="maxAmount"
+                              className="text-luxury-charcoal"
+                            >
+                              Max Amount
+                            </Label>
+                            <Input
+                              id="maxAmount"
+                              type="number"
+                              value={expenseFilter.maxAmount}
+                              onChange={(e) =>
+                                setExpenseFilter({
+                                  ...expenseFilter,
+                                  maxAmount: e.target.value,
+                                })
+                              }
+                              placeholder="Max amount"
+                              className="border-luxury-cream focus:ring-luxury-gold"
+                            />
+                          </div>
+                          <div className="flex items-end">
+                            <Button
+                              onClick={() => refetchExpenses()}
+                              className="w-full bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                              aria-label="Apply filters"
+                            >
+                              Apply Filters
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {expensesLoading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="animate-pulse border border-luxury-cream rounded-lg p-4"
+                            >
+                              <div className="space-y-2">
+                                <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
+                                <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : expenses && expenses.length > 0 ? (
+                        <ul className="space-y-6">
+                          {expenses.map((expense) => (
+                            <li
+                              key={expense.id}
+                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                                <div>
+                                  <h3 className="font-medium text-luxury-charcoal">
+                                    {expense.title}
+                                  </h3>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Amount: ₹{expense.amount.toLocaleString()}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Date:{" "}
+                                    {new Date(
+                                      expense.date
+                                    ).toLocaleDateString()}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Category: {expense.category || "N/A"}
+                                  </p>
+                                  {expense.description && (
+                                    <p className="text-sm text-luxury-charcoal/70">
+                                      Description: {expense.description}
+                                    </p>
+                                  )}
+                                  {expense.receipt && (
+                                    <a
+                                      href={
+                                        typedSupabase.storage
+                                          .from("property_documents")
+                                          .getPublicUrl(
+                                            expense.receipt.file_path
+                                          ).data.publicUrl
+                                      }
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-luxury-gold hover:underline text-sm flex items-center mt-1"
+                                      aria-label={`View receipt for ${expense.title}`}
+                                    >
+                                      <FileText className="h-4 w-4 mr-1" />
+                                      View Receipt
+                                    </a>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                  <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
+                                    {expense.category || "Uncategorized"}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
+                          <DollarSign className="h-16 w-16 text-luxury-charcoal/30 mx-auto mb-4" />
+                          <h3 className="text-xl font-medium text-luxury-charcoal mb-3">
+                            No expenses recorded
+                          </h3>
+                          <p className="text-luxury-charcoal/70 mb-6 max-w-md mx-auto">
+                            No expenses have been recorded for this property.
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                    {expenses && expenses.length > itemsPerPage && (
+                      <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
+                        <Button
+                          variant="outline"
+                          disabled={page === 1}
+                          onClick={() => setPage((p) => p - 1)}
+                          className="border-luxury-cream hover:bg-luxury-gold/20"
+                          aria-label="Previous page"
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={expenses.length <= page * itemsPerPage}
+                          onClick={() => setPage((p) => p + 1)}
+                          className="border-luxury-cream hover:bg-luxury-gold/20"
+                          aria-label="Next page"
+                        >
+                          Next
+                        </Button>
+                      </CardFooter>
+                    )}
+                  </Card>
+                </div>
+
+                <div>
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
+                      <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                        <svg
+                          className="h-5 w-5 mr-2 text-luxury-gold"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 6h16M4 12h16m-7 6h7"
+                          />
+                        </svg>
+                        Expense Actions
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="space-y-4">
+                        <Button
+                          onClick={() => handleTabChange("tenants")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage tenants"
+                        >
+                          <Users2 className="h-4 w-4 mr-2" />
+                          Manage Tenants
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("rents")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage rent collection"
+                        >
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Rent Collection
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("maintenance")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View maintenance requests"
+                        >
                           <Wrench className="h-4 w-4 mr-2" />
-                          Create New Request
+                          Maintenance Requests
                         </Button>
                       </div>
                     </CardContent>
@@ -2031,353 +2517,244 @@ const FlatDetail = () => {
         </AnimatePresence>
       </Tabs>
 
-      {/* Edit Flat Dialog */}
+      {/* Dialogs */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-2xl">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Edit className="h-5 w-5 mr-2 text-luxury-gold" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Edit Property
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Update the details for {flat?.name}.
-            </DialogDescription>
           </DialogHeader>
-          {flat ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                // Add logic to handle form submission
-                const updatedFlat = {
-                  ...flat,
-                  monthly_rent_target: +flat.monthly_rent_target,
-                  security_deposit: flat.security_deposit
-                    ? +flat.security_deposit
-                    : null,
-                  description: flat.description || "",
-                  property_tags: flat.property_tags || [],
-                };
-
-                // Call mutation or API to save changes
-                queryClient.setQueryData(["flat", id], updatedFlat);
-                toast({
-                  title: "Success",
-                  description: "Property updated successfully",
-                  className: "bg-luxury-gold text-luxury-charcoal border-none",
-                });
-                setEditOpen(false);
-              }}
-              className="space-y-6"
-            >
-              <div>
-                <Label htmlFor="monthly-rent" className="text-luxury-charcoal">
-                  Monthly Rent
-                </Label>
-                <Input
-                  id="monthly-rent"
-                  type="number"
-                  value={flat.monthly_rent_target}
-                  onChange={(e) =>
-                    queryClient.setQueryData(["flat", id], {
-                      ...flat,
-                      monthly_rent_target: +e.target.value,
-                    })
-                  }
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter monthly rent"
-                  required
-                />
-              </div>
-              <div>
-                <Label
-                  htmlFor="security-deposit"
-                  className="text-luxury-charcoal"
-                >
-                  Security Deposit
-                </Label>
-                <Input
-                  id="security-deposit"
-                  type="number"
-                  value={flat.security_deposit || ""}
-                  onChange={(e) =>
-                    queryClient.setQueryData(["flat", id], {
-                      ...flat,
-                      security_deposit: +e.target.value,
-                    })
-                  }
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter security deposit"
-                />
-              </div>
-              <div>
-                <Label htmlFor="description" className="text-luxury-charcoal">
-                  Description
-                </Label>
-                <Textarea
-                  id="description"
-                  value={flat.description || ""}
-                  onChange={(e) =>
-                    queryClient.setQueryData(["flat", id], {
-                      ...flat,
-                      description: e.target.value,
-                    })
-                  }
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter property description"
-                />
-              </div>
-              <div>
-                <Label
-                  htmlFor="property-features"
-                  className="text-luxury-charcoal"
-                >
-                  Property Features
-                </Label>
-                <Input
-                  id="property-features"
-                  value={
-                    flat.property_tags?.map((tag) => tag.tag_name).join(", ") ||
-                    ""
-                  }
-                  onChange={(e) =>
-                    queryClient.setQueryData(["flat", id], {
-                      ...flat,
-                      property_tags: e.target.value
-                        .split(",")
-                        .map((tag) => ({ id: "", tag_name: tag.trim() })),
-                    })
-                  }
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter features separated by commas"
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setEditOpen(false)}
-                  className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                >
-                  Save Changes
-                </Button>
-              </DialogFooter>
-            </form>
-          ) : (
-            <p className="text-luxury-charcoal/70">
-              Loading property details...
-            </p>
-          )}
+          <FlatForm
+            flat={flat}
+            onSuccess={() => {
+              setEditOpen(false);
+              queryClient.invalidateQueries({ queryKey: ["flat", id] });
+              queryClient.invalidateQueries({ queryKey: ["flats"] });
+              toast({
+                title: "Success",
+                description: "Property updated successfully",
+                className: "bg-luxury-gold text-luxury-charcoal border-none",
+              });
+            }}
+          />
         </DialogContent>
       </Dialog>
 
-      {/* Add Tenant Dialog */}
       <Dialog open={addTenantOpen} onOpenChange={setAddTenantOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Users2 className="h-5 w-5 mr-2 text-luxury-gold" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Add New Tenant
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Add a new tenant to {flat.name}.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addTenantMutation.mutate(tenantForm);
+            }}
+            className="space-y-6"
+          >
             <div>
-              <Label htmlFor="tenant-name" className="text-luxury-charcoal">
+              <Label htmlFor="name" className="text-luxury-charcoal">
                 Name
               </Label>
               <Input
-                id="tenant-name"
+                id="name"
                 value={tenantForm.name}
                 onChange={(e) =>
                   setTenantForm({ ...tenantForm, name: e.target.value })
                 }
+                required
                 className="border-luxury-cream focus:ring-luxury-gold"
                 placeholder="Enter tenant name"
-                required
-                aria-required="true"
               />
             </div>
             <div>
-              <Label htmlFor="tenant-phone" className="text-luxury-charcoal">
+              <Label htmlFor="phone" className="text-luxury-charcoal">
                 Phone
               </Label>
               <Input
-                id="tenant-phone"
+                id="phone"
+                type="tel"
                 value={tenantForm.phone}
                 onChange={(e) =>
                   setTenantForm({ ...tenantForm, phone: e.target.value })
                 }
+                required
                 className="border-luxury-cream focus:ring-luxury-gold"
                 placeholder="Enter phone number"
-                type="tel"
-                required
-                aria-required="true"
               />
             </div>
             <div>
-              <Label htmlFor="tenant-email" className="text-luxury-charcoal">
+              <Label htmlFor="email" className="text-luxury-charcoal">
                 Email (Optional)
               </Label>
               <Input
-                id="tenant-email"
+                id="email"
+                type="email"
                 value={tenantForm.email}
                 onChange={(e) =>
                   setTenantForm({ ...tenantForm, email: e.target.value })
                 }
                 className="border-luxury-cream focus:ring-luxury-gold"
                 placeholder="Enter email address"
-                type="email"
               />
             </div>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAddTenantOpen(false);
-                setTenantForm({ name: "", phone: "", email: "" });
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel adding tenant"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => addTenantMutation.mutate(tenantForm)}
-              disabled={
-                addTenantMutation.isPending ||
-                !tenantForm.name ||
-                !tenantForm.phone
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-              aria-label="Add tenant"
-            >
-              {addTenantMutation.isPending ? "Adding..." : "Add Tenant"}
-            </Button>
-          </DialogFooter>
+            <div>
+              <Label htmlFor="photo" className="text-luxury-charcoal">
+                Tenant Photo (Optional)
+              </Label>
+              <Input
+                id="photo"
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setTenantPhoto(e.target.files ? e.target.files[0] : null)
+                }
+                className="border-luxury-cream focus:ring-luxury-gold"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddTenantOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={addTenantMutation.isPending}
+              >
+                {addTenantMutation.isPending ? "Adding..." : "Add Tenant"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Assign Tenant Dialog */}
       <Dialog open={assignTenantOpen} onOpenChange={setAssignTenantOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Users2 className="h-5 w-5 mr-2 text-luxury-gold" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Assign Existing Tenant
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Assign an existing tenant to {flat.name}.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (selectedTenant) {
+                assignTenantMutation.mutate(selectedTenant);
+              }
+            }}
+            className="space-y-6"
+          >
             <div>
-              <Label htmlFor="select-tenant" className="text-luxury-charcoal">
+              <Label htmlFor="tenant" className="text-luxury-charcoal">
                 Select Tenant
               </Label>
               <Select
                 value={selectedTenant}
                 onValueChange={setSelectedTenant}
-                disabled={tenantsLoading || !availableTenants?.length}
+                required
               >
                 <SelectTrigger
-                  id="select-tenant"
+                  id="tenant"
                   className="border-luxury-cream focus:ring-luxury-gold"
-                  aria-label="Select tenant to assign"
                 >
-                  <SelectValue placeholder="Choose a tenant" />
+                  <SelectValue placeholder="Select a tenant" />
                 </SelectTrigger>
                 <SelectContent>
-                  {tenantsLoading ? (
-                    <SelectItem value="loading" disabled>
-                      Loading tenants...
+                  {availableTenants?.map((tenant) => (
+                    <SelectItem key={tenant.id} value={tenant.id}>
+                      {tenant.name} ({tenant.phone})
                     </SelectItem>
-                  ) : availableTenants && availableTenants.length > 0 ? (
-                    availableTenants.map((tenant) => (
-                      <SelectItem key={tenant.id} value={tenant.id}>
-                        {tenant.name} ({tenant.phone})
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="no-tenants" disabled>
-                      No available tenants
-                    </SelectItem>
-                  )}
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setAssignTenantOpen(false);
-                setSelectedTenant("");
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel assigning tenant"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => assignTenantMutation.mutate(selectedTenant)}
-              disabled={assignTenantMutation.isPending || !selectedTenant}
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-              aria-label="Assign tenant"
-            >
-              {assignTenantMutation.isPending
-                ? "Assigning..."
-                : "Assign Tenant"}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAssignTenantOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={assignTenantMutation.isPending || !selectedTenant}
+              >
+                {assignTenantMutation.isPending
+                  ? "Assigning..."
+                  : "Assign Tenant"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Upload Document Dialog */}
       <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Upload className="h-5 w-5 mr-2 text-luxury-gold" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Upload Document
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Upload a document for {flat.name}.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (docFile) {
+                uploadDocumentMutation.mutate({
+                  file: docFile,
+                  name: docName,
+                  document_type: docType,
+                });
+              }
+            }}
+            className="space-y-6"
+          >
             <div>
-              <Label htmlFor="doc-name" className="text-luxury-charcoal">
-                Document Name
+              <Label htmlFor="docFile" className="text-luxury-charcoal">
+                Document File
               </Label>
               <Input
-                id="doc-name"
-                value={docName}
-                onChange={(e) => setDocName(e.target.value)}
-                className="border-luxury-cream focus:ring-luxury-gold"
-                placeholder="Enter document name"
+                id="docFile"
+                type="file"
+                onChange={(e) =>
+                  setDocFile(e.target.files ? e.target.files[0] : null)
+                }
                 required
-                aria-required="true"
+                className="border-luxury-cream focus:ring-luxury-gold"
               />
             </div>
             <div>
-              <Label htmlFor="doc-type" className="text-luxury-charcoal">
+              <Label htmlFor="docName" className="text-luxury-charcoal">
+                Document Name
+              </Label>
+              <Input
+                id="docName"
+                value={docName}
+                onChange={(e) => setDocName(e.target.value)}
+                placeholder="Enter document name"
+                className="border-luxury-cream focus:ring-luxury-gold"
+              />
+            </div>
+            <div>
+              <Label htmlFor="docType" className="text-luxury-charcoal">
                 Document Type
               </Label>
               <Select value={docType} onValueChange={setDocType}>
                 <SelectTrigger
-                  id="doc-type"
+                  id="docType"
                   className="border-luxury-cream focus:ring-luxury-gold"
-                  aria-label="Select document type"
                 >
-                  <SelectValue placeholder="Select type" />
+                  <SelectValue placeholder="Select document type" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="lease_agreement">
@@ -2391,61 +2768,33 @@ const FlatDetail = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="doc-file" className="text-luxury-charcoal">
-                File
-              </Label>
-              <Input
-                id="doc-file"
-                type="file"
-                onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                className="border-luxury-cream focus:ring-luxury-gold"
-                required
-                aria-required="true"
-              />
-            </div>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setUploadDocOpen(false);
-                setDocFile(null);
-                setDocName("");
-                setDocType("other");
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel uploading document"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                docFile &&
-                uploadDocumentMutation.mutate({
-                  file: docFile,
-                  name: docName,
-                  document_type: docType,
-                })
-              }
-              disabled={
-                uploadDocumentMutation.isPending || !docFile || !docName
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-              aria-label="Upload document"
-            >
-              {uploadDocumentMutation.isPending ? "Uploading..." : "Upload"}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setUploadDocOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={uploadDocumentMutation.isPending || !docFile}
+              >
+                {uploadDocumentMutation.isPending
+                  ? "Uploading..."
+                  : "Upload Document"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Document Dialog */}
       <Dialog open={deleteDocOpen} onOpenChange={setDeleteDocOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Trash2 className="h-5 w-5 mr-2 text-red-600" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Delete Document
             </DialogTitle>
             <DialogDescription className="text-luxury-charcoal/70">
@@ -2453,26 +2802,24 @@ const FlatDetail = () => {
               be undone.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
+          <DialogFooter>
             <Button
+              type="button"
               variant="outline"
-              onClick={() => {
-                setDeleteDocOpen(false);
-                setSelectedDocId(null);
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel deleting document"
+              onClick={() => setDeleteDocOpen(false)}
+              className="border-luxury-cream hover:bg-luxury-cream/20"
             >
               Cancel
             </Button>
             <Button
-              variant="destructive"
-              onClick={() =>
-                selectedDocId && deleteDocumentMutation.mutate(selectedDocId)
-              }
-              disabled={deleteDocumentMutation.isPending}
+              type="button"
               className="bg-red-600 text-white hover:bg-red-700"
-              aria-label="Confirm delete document"
+              onClick={() => {
+                if (selectedDocId) {
+                  deleteDocumentMutation.mutate(selectedDocId);
+                }
+              }}
+              disabled={deleteDocumentMutation.isPending}
             >
               {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
             </Button>
@@ -2480,28 +2827,29 @@ const FlatDetail = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Create Maintenance Request Dialog */}
       <Dialog
         open={createMaintenanceOpen}
         onOpenChange={setCreateMaintenanceOpen}
       >
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Wrench className="h-5 w-5 mr-2 text-luxury-gold" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Create Maintenance Request
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Submit a new maintenance request for {flat.name}.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMaintenanceMutation.mutate(maintenanceForm);
+            }}
+            className="space-y-6"
+          >
             <div>
-              <Label htmlFor="maint-title" className="text-luxury-charcoal">
+              <Label htmlFor="title" className="text-luxury-charcoal">
                 Title
               </Label>
               <Input
-                id="maint-title"
+                id="title"
                 value={maintenanceForm.title}
                 onChange={(e) =>
                   setMaintenanceForm({
@@ -2509,21 +2857,17 @@ const FlatDetail = () => {
                     title: e.target.value,
                   })
                 }
+                required
                 className="border-luxury-cream focus:ring-luxury-gold"
                 placeholder="Enter request title"
-                required
-                aria-required="true"
               />
             </div>
             <div>
-              <Label
-                htmlFor="maint-description"
-                className="text-luxury-charcoal"
-              >
-                Description (Optional)
+              <Label htmlFor="description" className="text-luxury-charcoal">
+                Description
               </Label>
               <Textarea
-                id="maint-description"
+                id="description"
                 value={maintenanceForm.description}
                 onChange={(e) =>
                   setMaintenanceForm({
@@ -2536,7 +2880,7 @@ const FlatDetail = () => {
               />
             </div>
             <div>
-              <Label htmlFor="maint-priority" className="text-luxury-charcoal">
+              <Label htmlFor="priority" className="text-luxury-charcoal">
                 Priority
               </Label>
               <Select
@@ -2546,9 +2890,8 @@ const FlatDetail = () => {
                 }
               >
                 <SelectTrigger
-                  id="maint-priority"
+                  id="priority"
                   className="border-luxury-cream focus:ring-luxury-gold"
-                  aria-label="Select priority"
                 >
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
@@ -2560,22 +2903,21 @@ const FlatDetail = () => {
               </Select>
             </div>
             <div>
-              <Label htmlFor="maint-tenant" className="text-luxury-charcoal">
-                Assign to Tenant (Optional)
+              <Label htmlFor="tenant_id" className="text-luxury-charcoal">
+                Reported by Tenant (Optional)
               </Label>
               <Select
-                value={maintenanceForm.tenant_id || ""}
+                value={maintenanceForm.tenant_id || "none"}
                 onValueChange={(value) =>
                   setMaintenanceForm({
                     ...maintenanceForm,
-                    tenant_id: value === "" ? null : value,
+                    tenant_id: value === "none" ? null : value,
                   })
                 }
               >
                 <SelectTrigger
-                  id="maint-tenant"
+                  id="tenant_id"
                   className="border-luxury-cream focus:ring-luxury-gold"
-                  aria-label="Select tenant for maintenance request"
                 >
                   <SelectValue placeholder="Select tenant" />
                 </SelectTrigger>
@@ -2589,258 +2931,208 @@ const FlatDetail = () => {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCreateMaintenanceOpen(false);
-                setMaintenanceForm({
-                  title: "",
-                  description: "",
-                  priority: "medium",
-                  tenant_id: null,
-                });
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel creating maintenance request"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => createMaintenanceMutation.mutate(maintenanceForm)}
-              disabled={
-                createMaintenanceMutation.isPending || !maintenanceForm.title
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-              aria-label="Create maintenance request"
-            >
-              {createMaintenanceMutation.isPending
-                ? "Creating..."
-                : "Create Request"}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateMaintenanceOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={createMaintenanceMutation.isPending}
+              >
+                {createMaintenanceMutation.isPending
+                  ? "Creating..."
+                  : "Create Request"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Send Payment Links Dialog */}
       <Dialog
         open={sendPaymentLinksOpen}
-        onOpenChange={setSendPaymentLinksOpen}
+        onOpenChange={(open) => {
+          if (!open && paymentLinksData.length > 0) {
+            setConfirmCloseOpen(true);
+          } else {
+            setSendPaymentLinksOpen(open);
+          }
+        }}
       >
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Send className="h-5 w-5 mr-2 text-luxury-gold" />
-              Generate Payment Links
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Send Payment Links
             </DialogTitle>
-            <DialogDescription className="text-luxury-charcoal/70">
-              Create payment links for tenants of {flat.name}.
-            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="rent-amount" className="text-luxury-charcoal">
-                Rent Amount
-              </Label>
-              <Input
-                id="rent-amount"
-                type="number"
-                value={rentAmount}
-                onChange={(e) => setRentAmount(e.target.value)}
-                className="border-luxury-cream focus:ring-luxury-gold"
-                placeholder="Enter rent amount"
-                required
-                aria-required="true"
-              />
+          {paymentLinksData.length > 0 ? (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-medium text-luxury-charcoal">
+                  Generated Payment Links
+                </h3>
+                <ul className="space-y-4 mt-4">
+                  {paymentLinksData.map((linkData) => {
+                    const tenant = flat.tenants?.find(
+                      (t) => t.id === linkData.tenant_id
+                    );
+                    return (
+                      <li
+                        key={linkData.id}
+                        className="border border-luxury-cream rounded-lg p-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-luxury-charcoal">
+                              {tenant?.name || "Unknown Tenant"}
+                            </p>
+                            <a
+                              href={linkData.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-luxury-gold hover:underline text-sm truncate max-w-xs"
+                            >
+                              {linkData.link}
+                            </a>
+                          </div>
+                          <WhatsAppIntegration
+                            phone={tenant?.phone || ""}
+                            message={`Dear ${tenant?.name}, please pay your rent of ₹${rentAmount} for ${flat.name}. Use this link: ${linkData.link}`}
+                            buttonLabel="Send via WhatsApp"
+                            buttonClassName="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmCloseOpen(true)}
+                  className="border-luxury-cream hover:bg-luxury-cream/20"
+                >
+                  Close
+                </Button>
+              </DialogFooter>
             </div>
-            <div>
-              <Label
-                htmlFor="rent-description"
-                className="text-luxury-charcoal"
-              >
-                Description
-              </Label>
-              <Input
-                id="rent-description"
-                value={rentDescription}
-                onChange={(e) => setRentDescription(e.target.value)}
-                className="border-luxury-cream focus:ring-luxury-gold"
-                placeholder="Enter description"
-                required
-                aria-required="true"
-              />
-            </div>
-            <div>
-              <Label htmlFor="expiry-days" className="text-luxury-charcoal">
-                Link Expiry (Days)
-              </Label>
-              <Input
-                id="expiry-days"
-                type="number"
-                value={expiryDays}
-                onChange={(e) => setExpiryDays(e.target.value)}
-                className="border-luxury-cream focus:ring-luxury-gold"
-                placeholder="Enter expiry days"
-                min="1"
-                required
-                aria-required="true"
-              />
-            </div>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSendPaymentLinksOpen(false);
-                setRentAmount("");
-                setRentDescription("Rent Payment");
-                setExpiryDays("7");
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel generating payment links"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
                 createPaymentLinksMutation.mutate({
                   amount: Number(rentAmount),
                   description: rentDescription,
                   expiryDays: Number(expiryDays),
-                })
-              }
-              disabled={
-                createPaymentLinksMutation.isPending ||
-                !rentAmount ||
-                !rentDescription ||
-                !expiryDays ||
-                Number(expiryDays) < 1
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-              aria-label="Generate payment links"
+                });
+              }}
+              className="space-y-6"
             >
-              {createPaymentLinksMutation.isPending
-                ? "Generating..."
-                : "Generate Links"}
-            </Button>
-          </DialogFooter>
+              <div>
+                <Label htmlFor="rentAmount" className="text-luxury-charcoal">
+                  Rent Amount
+                </Label>
+                <Input
+                  id="rentAmount"
+                  type="number"
+                  value={rentAmount}
+                  onChange={(e) => setRentAmount(e.target.value)}
+                  required
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter rent amount"
+                />
+              </div>
+              <div>
+                <Label
+                  htmlFor="rentDescription"
+                  className="text-luxury-charcoal"
+                >
+                  Description
+                </Label>
+                <Input
+                  id="rentDescription"
+                  value={rentDescription}
+                  onChange={(e) => setRentDescription(e.target.value)}
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter description (e.g., Rent Payment)"
+                />
+              </div>
+              <div>
+                <Label htmlFor="expiryDays" className="text-luxury-charcoal">
+                  Link Expiry (Days)
+                </Label>
+                <Input
+                  id="expiryDays"
+                  type="number"
+                  value={expiryDays}
+                  onChange={(e) => setExpiryDays(e.target.value)}
+                  required
+                  min="1"
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter expiry days"
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSendPaymentLinksOpen(false)}
+                  className="border-luxury-cream hover:bg-luxury-cream/20"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                  disabled={createPaymentLinksMutation.isPending}
+                >
+                  {createPaymentLinksMutation.isPending
+                    ? "Generating..."
+                    : "Generate Links"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
-      {/* Payment Links Confirmation Card */}
-      {paymentLinksData.length > 0 && (
-        <Card className="bg-white shadow-md border border-luxury-cream rounded-lg mt-6">
-          <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
-            <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-              <Send className="h-5 w-5 mr-2 text-luxury-gold" />
-              Send Payment Links via WhatsApp
-            </CardTitle>
-            <CardDescription className="text-luxury-charcoal/70">
-              Review and send payment links to tenants
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            {paymentLinksData.map((linkData) => {
-              const tenant = flat?.tenants?.find(
-                (t) => t.id === linkData.tenant_id
-              );
-              return (
-                <div
-                  key={linkData.id}
-                  className="mb-4 p-4 border border-luxury-cream rounded-lg"
-                >
-                  <p className="text-luxury-charcoal font-medium">
-                    Tenant: {tenant?.name || "Unknown"}
-                  </p>
-                  <p className="text-luxury-charcoal/70 text-sm mt-1">
-                    Phone: {tenant?.phone || "N/A"}
-                  </p>
-                  <div className="flex items-center mt-1">
-                    <p className="text-luxury-charcoal/70 text-sm mr-2">
-                      Link:
-                    </p>
-                    <a
-                      href={linkData.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-luxury-gold hover:underline text-sm truncate max-w-xs"
-                      aria-label="Open payment link"
-                    >
-                      {linkData.link}
-                    </a>
-                  </div>
-                  {tenant?.phone ? (
-                    <WhatsAppIntegration
-                      paymentLink={linkData.link}
-                      tenantId={linkData.tenant_id}
-                      phone={tenant.phone}
-                      onError={(error) =>
-                        toast({
-                          variant: "destructive",
-                          title: "WhatsApp Error",
-                          description: error.message,
-                        })
-                      }
-                    />
-                  ) : (
-                    <p className="text-red-600 text-sm mt-2">
-                      Cannot send WhatsApp message: No phone number
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </CardContent>
-          <CardFooter className="p-6 border-t border-luxury-cream">
-            <Button
-              variant="outline"
-              onClick={() => setConfirmCloseOpen(true)}
-              className="w-full border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Close payment links"
-            >
-              Close
-            </Button>
-          </CardFooter>
-        </Card>
-      )}
-
-      {/* Confirm Close Payment Links Dialog */}
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <DialogContent className="bg-white border border-luxury-cream max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal flex items-center text-xl">
-              <Trash2 className="h-5 w-5 mr-2 text-red-600" />
+            <DialogTitle className="text-2xl text-luxury-charcoal">
               Confirm Close
             </DialogTitle>
             <DialogDescription className="text-luxury-charcoal/70">
-              Are you sure you want to close? Any unsent payment links will be
-              discarded.
+              Are you sure you want to close the payment links dialog? You can
+              still access the links in the Rent Collection tab.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
+          <DialogFooter>
             <Button
+              type="button"
               variant="outline"
               onClick={() => setConfirmCloseOpen(false)}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-              aria-label="Cancel closing payment links"
+              className="border-luxury-cream hover:bg-luxury-cream/20"
             >
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              type="button"
+              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
               onClick={() => {
-                setPaymentLinksData([]);
                 setSendPaymentLinksOpen(false);
-                setRentAmount("");
-                setRentDescription("Rent Payment");
-                setExpiryDays("7");
                 setConfirmCloseOpen(false);
+                setPaymentLinksData([]);
               }}
-              className="bg-red-600 text-white hover:bg-red-700"
-              aria-label="Confirm close payment links"
             >
-              Confirm
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

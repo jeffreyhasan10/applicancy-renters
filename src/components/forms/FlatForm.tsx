@@ -329,7 +329,7 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat }
               step="1"
               value={formData.security_deposit}
               onChange={handleChange}
-              placeholder="Enter deposit amount (optional)"
+              placeholder="Enter deposit amount"
               className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
               aria-invalid={!!errors.security_deposit}
               aria-describedby={errors.security_deposit ? "deposit-error" : undefined}
@@ -340,7 +340,7 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat }
               </p>
             )}
             <p className="text-xs text-luxury-charcoal/70 mt-1">
-              Optional: Specify the security deposit for the flat
+              Specify the security deposit for the flat
             </p>
           </div>
 

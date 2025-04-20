@@ -70,7 +70,7 @@ export default function Tenants() {
     flat_id: "",
     start_date: "",
     is_active: true,
-    tenant_photo: "",
+    photo: null as File | null, // Updated to handle file upload
   });
   const [formSubmitting, setFormSubmitting] = useState(false);
   const { toast } = useToast();
@@ -228,7 +228,7 @@ export default function Tenants() {
         flat_id: tenant.flat_id || "",
         start_date: tenant.start_date || "",
         is_active: tenant.is_active ?? true,
-        tenant_photo: tenant.tenant_photo || "",
+        photo: null,
       });
     } else {
       setEditTenant(null);
@@ -239,7 +239,7 @@ export default function Tenants() {
         flat_id: "",
         start_date: "",
         is_active: true,
-        tenant_photo: "",
+        photo: null,
       });
     }
     setFormOpen(true);
@@ -251,6 +251,32 @@ export default function Tenants() {
     setFormSubmitting(true);
 
     try {
+      let tenantPhotoUrl: string | null = editTenant?.tenant_photo || null;
+
+      // Handle photo upload if a new photo is provided
+      if (formData.photo) {
+        const fileExt = formData.photo.name.split(".").pop();
+        const fileName = `${editTenant?.id || "new"}/photo_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await typedSupabase.storage
+          .from("tenant_photos")
+          .upload(fileName, formData.photo, { cacheControl: "3600", upsert: true });
+
+        if (uploadError) {
+          throw new Error(`Photo upload error: ${uploadError.message}`);
+        }
+
+        // Get the public URL of the uploaded photo
+        const { data: publicUrlData } = typedSupabase.storage
+          .from("tenant_photos")
+          .getPublicUrl(fileName);
+
+        if (!publicUrlData) {
+          throw new Error("Failed to retrieve public URL for the uploaded photo");
+        }
+
+        tenantPhotoUrl = publicUrlData.publicUrl;
+      }
+
       if (editTenant?.id) {
         // Update existing tenant
         const { error } = await typedSupabase
@@ -262,7 +288,7 @@ export default function Tenants() {
             flat_id: formData.flat_id || null,
             start_date: formData.start_date,
             is_active: formData.is_active,
-            tenant_photo: formData.tenant_photo || null,
+            tenant_photo: tenantPhotoUrl,
           })
           .eq("id", editTenant.id);
 
@@ -282,7 +308,7 @@ export default function Tenants() {
             flat_id: formData.flat_id || null,
             start_date: formData.start_date,
             is_active: formData.is_active,
-            tenant_photo: formData.tenant_photo || null,
+            tenant_photo: tenantPhotoUrl,
           },
         ]);
 
@@ -303,7 +329,7 @@ export default function Tenants() {
         flat_id: "",
         start_date: "",
         is_active: true,
-        tenant_photo: "",
+        photo: null,
       });
       await fetchData();
     } catch (error: any) {
@@ -375,7 +401,7 @@ export default function Tenants() {
               />
             </div>
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Email (Optional)</Label>
               <Input
                 id="email"
                 type="email"
@@ -397,7 +423,7 @@ export default function Tenants() {
               />
             </div>
             <div>
-              <Label htmlFor="flat_id">Flat</Label>
+              <Label htmlFor="flat_id">Flat (Optional)</Label>
               <select
                 id="flat_id"
                 value={formData.flat_id}
@@ -438,20 +464,37 @@ export default function Tenants() {
               <Label htmlFor="is_active">Active</Label>
             </div>
             <div>
-              <Label htmlFor="tenant_photo">Photo URL</Label>
+              <Label htmlFor="photo">Tenant Photo (Optional)</Label>
               <Input
-                id="tenant_photo"
-                value={formData.tenant_photo}
+                id="photo"
+                type="file"
+                accept="image/*"
                 onChange={(e) =>
-                  setFormData({ ...formData, tenant_photo: e.target.value })
+                  setFormData({ ...formData, photo: e.target.files?.[0] || null })
                 }
               />
+              {formData.photo && (
+                <p className="text-sm text-gray-500 mt-1">
+                  Selected: {formData.photo.name}
+                </p>
+              )}
             </div>
             <div className="flex justify-end space-x-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setFormOpen(false)}
+                onClick={() => {
+                  setFormOpen(false);
+                  setFormData({
+                    name: "",
+                    email: "",
+                    phone: "",
+                    flat_id: "",
+                    start_date: "",
+                    is_active: true,
+                    photo: null,
+                  });
+                }}
                 disabled={formSubmitting}
               >
                 Cancel
