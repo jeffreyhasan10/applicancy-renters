@@ -147,6 +147,15 @@ interface PaymentLinkData {
   tenant_id: string;
 }
 
+interface ExpenseForm {
+  title: string;
+  amount: string;
+  date: string;
+  category: string;
+  description?: string;
+  receipt?: File;
+}
+
 const fadeIn = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.4 } },
@@ -157,6 +166,15 @@ const FlatDetail = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [expenseForm, setExpenseForm] = useState<ExpenseForm>({
+    title: "",
+    amount: "",
+    date: format(new Date(), "yyyy-MM-dd"),
+    category: "",
+    description: "",
+  });
+  const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null);
   const [addTenantOpen, setAddTenantOpen] = useState(false);
   const [assignTenantOpen, setAssignTenantOpen] = useState(false);
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
@@ -734,6 +752,76 @@ const FlatDetail = () => {
     },
   });
 
+  const addExpenseMutation = useMutation({
+    mutationFn: async (data: ExpenseForm) => {
+      let receiptId: string | null = null;
+
+      if (expenseReceipt) {
+        const fileExt = expenseReceipt.name.split(".").pop();
+        const fileName = `${id}/expenses/${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await typedSupabase.storage
+          .from("property_documents")
+          .upload(fileName, expenseReceipt);
+        if (uploadError) throw new Error(uploadError.message);
+
+        const { data: docData, error: docError } = await typedSupabase
+          .from("property_documents")
+          .insert({
+            flat_id: id,
+            file_path: fileName,
+            name: expenseReceipt.name,
+            document_type: "expense_receipt",
+          })
+          .select()
+          .single();
+
+        if (docError) throw new Error(docError.message);
+        receiptId = docData.id;
+      }
+
+      const { data: expense, error } = await typedSupabase
+        .from("expenses")
+        .insert({
+          flat_id: id,
+          title: data.title,
+          amount: Number(data.amount),
+          date: data.date,
+          description: data.description || null,
+          category: data.category,
+          receipt_id: receiptId,
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return expense;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses", id] });
+      toast({
+        title: "Success",
+        description: "Expense added successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+      setAddExpenseOpen(false);
+      setExpenseForm({
+        title: "",
+        amount: "",
+        date: format(new Date(), "yyyy-MM-dd"),
+        category: "",
+        description: "",
+      });
+      setExpenseReceipt(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to add expense",
+      });
+    },
+  });
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -819,48 +907,48 @@ const FlatDetail = () => {
   }
 
   return (
-    <div
-      className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-10 py-8 bg-luxury-softwhite min-h-screen"
+    <div 
+      className="w-full min-h-screen bg-luxury-softwhite px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 overflow-x-hidden"
       role="main"
       aria-label="Property Details"
     >
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-luxury-cream pb-6">
-        <div className="flex items-center mb-4 md:mb-0">
-          <Link to="/flats" className="mr-4">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-luxury-cream">
+        <div className="flex items-center gap-4">
+          <Link to="/flats">
             <Button
               variant="outline"
               size="icon"
-              className="h-10 w-10 border-luxury-cream hover:bg-luxury-gold/20 rounded-full"
+              className="h-9 w-9 sm:h-10 sm:w-10 border-luxury-cream hover:bg-luxury-gold/20 rounded-full"
               aria-label="Back to properties"
             >
-              <ArrowLeft className="h-5 w-5 text-luxury-charcoal" />
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 text-luxury-charcoal" />
             </Button>
           </Link>
           <div>
-            <div className="flex items-center">
-              <h1 className="text-3xl font-semibold text-luxury-charcoal">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl sm:text-3xl font-semibold text-luxury-charcoal">
                 {flat.name}
               </h1>
               {renderAvailabilityBadge()}
             </div>
-            <p className="text-luxury-charcoal/70 text-sm mt-1">
+            <p className="text-sm sm:text-base text-luxury-charcoal/70 mt-1">
               {flat.address}
             </p>
           </div>
         </div>
 
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={() => setEditOpen(true)}
-            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+            className="w-full sm:w-auto border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
             aria-label="Edit property"
           >
             <Edit className="h-4 w-4 mr-2" /> Edit
           </Button>
           <Button
-            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+            className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
             onClick={() => handleTabChange("tenants")}
             aria-label="Manage tenants"
           >
@@ -872,29 +960,29 @@ const FlatDetail = () => {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Tabs Navigation */}
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
         className="w-full"
         aria-label="Property tabs"
       >
-        <TabsList className="grid grid-cols-6 mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-6 sm:mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1 gap-1 overflow-x-auto">
           <TabsTrigger
             value="details"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Overview
           </TabsTrigger>
           <TabsTrigger
             value="tenants"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Tenants {flat.tenants?.length ? `(${flat.tenants.length})` : ""}
           </TabsTrigger>
           <TabsTrigger
             value="documents"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Documents{" "}
             {flat.property_documents?.length
@@ -903,13 +991,13 @@ const FlatDetail = () => {
           </TabsTrigger>
           <TabsTrigger
             value="rents"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Rent Collection
           </TabsTrigger>
           <TabsTrigger
             value="maintenance"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Maintenance{" "}
             {maintenanceRequests?.length
@@ -918,7 +1006,7 @@ const FlatDetail = () => {
           </TabsTrigger>
           <TabsTrigger
             value="expenses"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Expenses {expenses?.length ? `(${expenses.length})` : ""}
           </TabsTrigger>
@@ -933,7 +1021,7 @@ const FlatDetail = () => {
             transition={{ duration: 0.3 }}
           >
             <TabsContent value="details" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg overflow-hidden">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
@@ -1137,7 +1225,7 @@ const FlatDetail = () => {
             </TabsContent>
 
             <TabsContent value="tenants" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
@@ -1447,7 +1535,7 @@ const FlatDetail = () => {
             </TabsContent>
 
             <TabsContent value="documents" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
@@ -1667,7 +1755,7 @@ const FlatDetail = () => {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     strokeWidth={2}
-                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                                   />
                                 </svg>
                               </div>
@@ -1737,7 +1825,7 @@ const FlatDetail = () => {
             </TabsContent>
 
             <TabsContent value="rents" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
@@ -1973,7 +2061,7 @@ const FlatDetail = () => {
             </TabsContent>
 
             <TabsContent value="maintenance" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
@@ -2191,7 +2279,7 @@ const FlatDetail = () => {
             </TabsContent>
 
             <TabsContent value="expenses" className="mt-0">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
@@ -2200,15 +2288,26 @@ const FlatDetail = () => {
                           <DollarSign className="h-5 w-5 mr-2 text-luxury-gold" />
                           Expenses
                         </CardTitle>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleTabChange("expenses")}
-                          className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                          aria-label="Filter expenses"
-                        >
-                          <Filter className="h-4 w-4 mr-1" /> Filter
-                        </Button>
+                        <div className="flex space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddExpenseOpen(true)}
+                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                            aria-label="Add expense"
+                          >
+                            <FilePlus className="h-4 w-4 mr-1" /> Add Expense
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleTabChange("expenses")}
+                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                            aria-label="Filter expenses"
+                          >
+                            <Filter className="h-4 w-4 mr-1" /> Filter
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="p-6">
@@ -2517,9 +2616,9 @@ const FlatDetail = () => {
         </AnimatePresence>
       </Tabs>
 
-      {/* Dialogs */}
+      {/* Responsive Dialogs */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Edit Property
@@ -2542,7 +2641,7 @@ const FlatDetail = () => {
       </Dialog>
 
       <Dialog open={addTenantOpen} onOpenChange={setAddTenantOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Add New Tenant
@@ -2637,7 +2736,7 @@ const FlatDetail = () => {
       </Dialog>
 
       <Dialog open={assignTenantOpen} onOpenChange={setAssignTenantOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Assign Existing Tenant
@@ -2700,7 +2799,7 @@ const FlatDetail = () => {
       </Dialog>
 
       <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Upload Document
@@ -2792,7 +2891,7 @@ const FlatDetail = () => {
       </Dialog>
 
       <Dialog open={deleteDocOpen} onOpenChange={setDeleteDocOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Delete Document
@@ -2831,7 +2930,7 @@ const FlatDetail = () => {
         open={createMaintenanceOpen}
         onOpenChange={setCreateMaintenanceOpen}
       >
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Create Maintenance Request
@@ -2964,7 +3063,7 @@ const FlatDetail = () => {
           }
         }}
       >
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-lg">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Send Payment Links
@@ -3104,7 +3203,7 @@ const FlatDetail = () => {
       </Dialog>
 
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl max-w-md">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-2xl text-luxury-charcoal">
               Confirm Close
@@ -3135,6 +3234,146 @@ const FlatDetail = () => {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addExpenseOpen} onOpenChange={setAddExpenseOpen}>
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Add Expense
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addExpenseMutation.mutate(expenseForm);
+            }}
+            className="space-y-6"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <Label htmlFor="title" className="text-luxury-charcoal">
+                  Title
+                </Label>
+                <Input
+                  id="title"
+                  value={expenseForm.title}
+                  onChange={(e) =>
+                    setExpenseForm({ ...expenseForm, title: e.target.value })
+                  }
+                  required
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter expense title"
+                />
+              </div>
+              <div>
+                <Label htmlFor="amount" className="text-luxury-charcoal">
+                  Amount
+                </Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  value={expenseForm.amount}
+                  onChange={(e) =>
+                    setExpenseForm({ ...expenseForm, amount: e.target.value })
+                  }
+                  required
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div>
+                <Label htmlFor="date" className="text-luxury-charcoal">
+                  Date
+                </Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={(e) =>
+                    setExpenseForm({ ...expenseForm, date: e.target.value })
+                  }
+                  required
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="category" className="text-luxury-charcoal">
+                  Category
+                </Label>
+                <Select
+                  value={expenseForm.category}
+                  onValueChange={(value) =>
+                    setExpenseForm({ ...expenseForm, category: value })
+                  }
+                  required
+                >
+                  <SelectTrigger
+                    id="category"
+                    className="border-luxury-cream focus:ring-luxury-gold"
+                  >
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="utilities">Utilities</SelectItem>
+                    <SelectItem value="repairs">Repairs</SelectItem>
+                    <SelectItem value="taxes">Taxes</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="description" className="text-luxury-charcoal">
+                  Description (Optional)
+                </Label>
+                <Textarea
+                  id="description"
+                  value={expenseForm.description}
+                  onChange={(e) =>
+                    setExpenseForm({
+                      ...expenseForm,
+                      description: e.target.value,
+                    })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                  placeholder="Enter expense description"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="receipt" className="text-luxury-charcoal">
+                  Receipt (Optional)
+                </Label>
+                <Input
+                  id="receipt"
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) =>
+                    setExpenseReceipt(e.target.files ? e.target.files[0] : null)
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddExpenseOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={addExpenseMutation.isPending}
+              >
+                {addExpenseMutation.isPending ? "Adding..." : "Add Expense"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

@@ -454,750 +454,756 @@ export default function TenantDetail() {
     .reduce((sum, rent) => sum + rent.amount, 0);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 bg-luxury-softwhite min-h-screen">
-      <div className="flex items-center mb-6">
-        <Link to="/tenants" className="mr-4">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 border-luxury-cream hover:bg-luxury-gold/20"
-          >
-            <ArrowLeft className="h-4 w-4 text-luxury-charcoal" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold text-luxury-charcoal">
-            {tenant.name}
-          </h1>
-          <p className="text-luxury-charcoal/70">Tenant Details</p>
+    <div className="w-full min-h-screen p-4 md:p-6 lg:p-8 bg-luxury-softwhite">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
+          <Link to="/tenants">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 border-luxury-cream hover:bg-luxury-gold/20"
+            >
+              <ArrowLeft className="h-4 w-4 text-luxury-charcoal" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold text-luxury-charcoal">
+              {tenant.name}
+            </h1>
+            <p className="text-sm sm:text-base text-luxury-charcoal/70">
+              Tenant Details
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <Card className="bg-white shadow-lg border border-luxury-cream">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-luxury-charcoal">
-                Personal Info
-              </CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setEditForm({
-                    name: tenant.name,
-                    phone: tenant.phone,
-                    email: tenant.email || "",
-                    photo: null,
-                  });
-                  setEditOpen(true);
-                }}
-                className="text-luxury-charcoal hover:bg-luxury-gold/20"
-              >
-                <Edit className="h-4 w-4 mr-1" /> Edit
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center mb-4">
-              {tenant.tenant_photo ? (
-                <img
-                  src={tenant.tenant_photo}
-                  alt={`${tenant.name}'s photo`}
-                  className="h-24 w-24 rounded-full object-cover mb-2"
-                />
-              ) : (
-                <div className="h-24 w-24 rounded-full bg-luxury-cream flex items-center justify-center mb-2">
-                  <span className="text-3xl font-medium text-luxury-charcoal">
-                    {tenant.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")}
-                  </span>
-                </div>
-              )}
-              <h3 className="text-lg font-medium text-luxury-charcoal">
-                {tenant.name}
-              </h3>
-              <span
-                className={`px-2 mt-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                  tenant.is_active
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-gray-100 text-gray-800"
-                }`}
-              >
-                {tenant.is_active ? "Active" : "Inactive"}
-              </span>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center">
-                <Phone className="h-4 w-4 text-luxury-charcoal/50 mr-2" />
-                <span className="text-sm text-luxury-charcoal">
-                  {tenant.phone}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+          <Card className="bg-white shadow-lg border border-luxury-cream">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-luxury-charcoal">
+                  Personal Info
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditForm({
+                      name: tenant.name,
+                      phone: tenant.phone,
+                      email: tenant.email || "",
+                      photo: null,
+                    });
+                    setEditOpen(true);
+                  }}
+                  className="text-luxury-charcoal hover:bg-luxury-gold/20"
+                >
+                  <Edit className="h-4 w-4 mr-1" /> Edit
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center mb-4">
+                {tenant.tenant_photo ? (
+                  <img
+                    src={tenant.tenant_photo}
+                    alt={`${tenant.name}'s photo`}
+                    className="h-24 w-24 rounded-full object-cover mb-2"
+                  />
+                ) : (
+                  <div className="h-24 w-24 rounded-full bg-luxury-cream flex items-center justify-center mb-2">
+                    <span className="text-3xl font-medium text-luxury-charcoal">
+                      {tenant.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")}
+                    </span>
+                  </div>
+                )}
+                <h3 className="text-lg font-medium text-luxury-charcoal">
+                  {tenant.name}
+                </h3>
+                <span
+                  className={`px-2 mt-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                    tenant.is_active
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  {tenant.is_active ? "Active" : "Inactive"}
                 </span>
               </div>
-              {tenant.email && (
+              <div className="space-y-3">
                 <div className="flex items-center">
-                  <svg
-                    className="h-4 w-4 text-luxury-charcoal/50 mr-2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                    />
-                  </svg>
+                  <Phone className="h-4 w-4 text-luxury-charcoal/50 mr-2" />
                   <span className="text-sm text-luxury-charcoal">
-                    {tenant.email}
+                    {tenant.phone}
                   </span>
                 </div>
+                {tenant.email && (
+                  <div className="flex items-center">
+                    <svg
+                      className="h-4 w-4 text-luxury-charcoal/50 mr-2"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </svg>
+                    <span className="text-sm text-luxury-charcoal">
+                      {tenant.email}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center">
+                  <CalendarDays className="h-4 w-4 text-luxury-charcoal/50 mr-2" />
+                  <span className="text-sm text-luxury-charcoal">
+                    Joined on {new Date(tenant.start_date).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  className="w-full gap-1 border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                  onClick={() => setWhatsappOpen(true)}
+                >
+                  <Send className="h-4 w-4" /> Send WhatsApp
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white shadow-lg border border-luxury-cream">
+            <CardHeader>
+              <CardTitle className="text-luxury-charcoal">Flat Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {tenant.flat ? (
+                <div className="flex items-center mb-4">
+                  <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center bg-luxury-gold/10 rounded-full mr-3">
+                    <Building2 className="h-5 w-5 text-luxury-gold" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-luxury-charcoal">
+                      {tenant.flat.name}
+                    </h3>
+                    <p className="text-sm text-luxury-charcoal/70">
+                      {tenant.flat.address}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center p-4 text-center">
+                  <Building2 className="h-10 w-10 text-luxury-charcoal/30 mb-2" />
+                  <p className="text-luxury-charcoal/70">No flat assigned</p>
+                  <Button
+                    variant="outline"
+                    className="mt-3 border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                    size="sm"
+                    onClick={() => setAssignFlatOpen(true)}
+                  >
+                    Assign Flat
+                  </Button>
+                </div>
               )}
-              <div className="flex items-center">
-                <CalendarDays className="h-4 w-4 text-luxury-charcoal/50 mr-2" />
-                <span className="text-sm text-luxury-charcoal">
-                  Joined on {new Date(tenant.start_date).toLocaleDateString()}
-                </span>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white shadow-lg border border-luxury-cream">
+            <CardHeader>
+              <CardTitle className="text-luxury-charcoal">
+                Payment Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-luxury-cream p-3 rounded-lg">
+                  <p className="text-xs text-luxury-charcoal/70 mb-1">
+                    Total Paid
+                  </p>
+                  <p className="text-xl font-semibold text-emerald-600">
+                    ₹{totalPaid.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-luxury-charcoal/70 mt-1">
+                    for {formattedRents.filter((r) => r.status === "paid").length}{" "}
+                    payments
+                  </p>
+                </div>
+                <div className="bg-luxury-cream p-3 rounded-lg">
+                  <p className="text-xs text-luxury-charcoal/70 mb-1">Pending</p>
+                  <p className="text-xl font-semibold text-luxury-charcoal">
+                    ₹{pendingAmount.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-luxury-charcoal/70 mt-1">
+                    {pendingAmount === 0
+                      ? "All paid"
+                      : `${
+                          formattedRents.filter((r) => r.status !== "paid").length
+                        } pending`}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Button
+                  className="w-full gap-1 bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                  onClick={() => setRecordPaymentOpen(true)}
+                  disabled={pendingAmount === 0}
+                >
+                  <IndianRupee className="h-4 w-4" /> Record Payment
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Tabs defaultValue="rent" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 bg-luxury-cream/50">
+            <TabsTrigger value="rent" className="text-luxury-charcoal">
+              Rent History
+            </TabsTrigger>
+            <TabsTrigger value="furniture" className="text-luxury-charcoal">
+              Assigned Furniture
+            </TabsTrigger>
+            <TabsTrigger value="documents" className="text-luxury-charcoal">
+              Documents
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="rent">
+            <Card className="bg-white shadow-lg border border-luxury-cream">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-luxury-charcoal">
+                    Rent History
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportRentHistory}
+                    className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                  >
+                    <Download className="h-4 w-4 mr-1" /> Export
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {formattedRents.length === 0 ? (
+                  <div className="text-center py-10">
+                    <p className="text-luxury-charcoal/70">
+                      No rent history available
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <div className="inline-block min-w-full align-middle">
+                      <table className="min-w-full divide-y divide-luxury-cream">
+                        <thead>
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                              Month
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                              Due Date
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                              Amount
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
+                              Paid On
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-luxury-cream">
+                          {formattedRents.map((rent) => (
+                            <tr key={rent.id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-luxury-charcoal">
+                                {rent.month}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal/70">
+                                {rent.dueDate}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal">
+                                ₹{rent.amount.toLocaleString()}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span
+                                  className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                    rent.status === "paid"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-red-100 text-red-800"
+                                  }`}
+                                >
+                                  {rent.status.charAt(0).toUpperCase() +
+                                    rent.status.slice(1)}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal/70">
+                                {rent.paidOn}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="furniture">
+            <Card className="bg-white shadow-lg border border-luxury-cream">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-luxury-charcoal">
+                    Assigned Furniture
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAssignFurnitureOpen(true)}
+                    className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                  >
+                    <Package2 className="h-4 w-4 mr-1" /> Assign More
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {tenant.tenant_furniture && tenant.tenant_furniture.length > 0 ? (
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {tenant.tenant_furniture.map((item) => (
+                      <li
+                        key={item.furniture_item_id}
+                        className="p-3 text-sm text-luxury-charcoal bg-luxury-cream/10 rounded-lg"
+                      >
+                        {item.furniture_items.name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-center py-10">
+                    <p className="text-luxury-charcoal/70">
+                      No furniture assigned yet
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="documents">
+            <Card className="bg-white shadow-lg border border-luxury-cream">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-luxury-charcoal">
+                    Documents
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUploadDocOpen(true)}
+                    className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                  >
+                    <FilePlus className="h-4 w-4 mr-1" /> Upload
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {tenant.property_documents &&
+                tenant.property_documents.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {tenant.property_documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="border border-luxury-cream rounded-lg p-3 sm:p-4"
+                      >
+                        <a
+                          href={
+                            typedSupabase.storage
+                              .from("property_documents")
+                              .getPublicUrl(doc.file_path).data.publicUrl
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-luxury-gold hover:text-luxury-gold/80"
+                        >
+                          <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                            />
+                          </svg>
+                          <span className="text-xs sm:text-sm truncate text-luxury-charcoal">
+                            {doc.name}
+                          </span>
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-10 border border-dashed border-luxury-cream rounded-lg">
+                    <Upload className="h-10 w-10 text-luxury-charcoal/50 mx-auto mb-3" />
+                    <h3 className="text-sm font-medium text-luxury-charcoal mb-1">
+                      No documents uploaded
+                    </h3>
+                    <p className="text-xs text-luxury-charcoal/70">
+                      Click to upload
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        {/* WhatsApp Modal */}
+        <WhatsAppIntegration
+          open={whatsappOpen}
+          onOpenChange={setWhatsappOpen}
+          recipient={tenant}
+        />
+
+        {/* Edit Tenant Modal */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="w-full max-w-lg mx-auto bg-white border border-luxury-cream">
+            <DialogHeader>
+              <DialogTitle className="text-luxury-charcoal">
+                Edit Tenant
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="name" className="text-luxury-charcoal">
+                  Name
+                </Label>
+                <Input
+                  id="name"
+                  value={editForm.name}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, name: e.target.value })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone" className="text-luxury-charcoal">
+                  Phone
+                </Label>
+                <Input
+                  id="phone"
+                  value={editForm.phone}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, phone: e.target.value })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+              <div>
+                <Label htmlFor="email" className="text-luxury-charcoal">
+                  Email (Optional)
+                </Label>
+                <Input
+                  id="email"
+                  value={editForm.email}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, email: e.target.value })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+              <div>
+                <Label htmlFor="photo" className="text-luxury-charcoal">
+                  Tenant Photo (Optional)
+                </Label>
+                <Input
+                  id="photo"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, photo: e.target.files?.[0] || null })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+                {editForm.photo && (
+                  <p className="text-sm text-luxury-charcoal/70 mt-1">
+                    Selected: {editForm.photo.name}
+                  </p>
+                )}
               </div>
             </div>
-            <div className="mt-4">
+            <DialogFooter>
               <Button
                 variant="outline"
-                className="w-full gap-1 border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                onClick={() => setWhatsappOpen(true)}
+                onClick={() => {
+                  setEditOpen(false);
+                  setEditForm({ name: "", phone: "", email: "", photo: null });
+                }}
+                className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
               >
-                <Send className="h-4 w-4" /> Send WhatsApp
+                Cancel
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white shadow-lg border border-luxury-cream">
-          <CardHeader>
-            <CardTitle className="text-luxury-charcoal">Flat Details</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tenant.flat ? (
-              <div className="flex items-center mb-4">
-                <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center bg-luxury-gold/10 rounded-full mr-3">
-                  <Building2 className="h-5 w-5 text-luxury-gold" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-luxury-charcoal">
-                    {tenant.flat.name}
-                  </h3>
-                  <p className="text-sm text-luxury-charcoal/70">
-                    {tenant.flat.address}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center p-4 text-center">
-                <Building2 className="h-10 w-10 text-luxury-charcoal/30 mb-2" />
-                <p className="text-luxury-charcoal/70">No flat assigned</p>
-                <Button
-                  variant="outline"
-                  className="mt-3 border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                  size="sm"
-                  onClick={() => setAssignFlatOpen(true)}
-                >
-                  Assign Flat
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white shadow-lg border border-luxury-cream">
-          <CardHeader>
-            <CardTitle className="text-luxury-charcoal">
-              Payment Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-luxury-cream p-3 rounded-lg">
-                <p className="text-xs text-luxury-charcoal/70 mb-1">
-                  Total Paid
-                </p>
-                <p className="text-xl font-semibold text-emerald-600">
-                  ₹{totalPaid.toLocaleString()}
-                </p>
-                <p className="text-xs text-luxury-charcoal/70 mt-1">
-                  for {formattedRents.filter((r) => r.status === "paid").length}{" "}
-                  payments
-                </p>
-              </div>
-              <div className="bg-luxury-cream p-3 rounded-lg">
-                <p className="text-xs text-luxury-charcoal/70 mb-1">Pending</p>
-                <p className="text-xl font-semibold text-luxury-charcoal">
-                  ₹{pendingAmount.toLocaleString()}
-                </p>
-                <p className="text-xs text-luxury-charcoal/70 mt-1">
-                  {pendingAmount === 0
-                    ? "All paid"
-                    : `${
-                        formattedRents.filter((r) => r.status !== "paid").length
-                      } pending`}
-                </p>
-              </div>
-            </div>
-            <div className="mt-4">
               <Button
-                className="w-full gap-1 bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                onClick={() => setRecordPaymentOpen(true)}
-                disabled={pendingAmount === 0}
+                onClick={() => editTenant.mutate(editForm)}
+                disabled={
+                  !editForm.name ||
+                  !editForm.phone ||
+                  editTenant.isPending
+                }
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
               >
-                <IndianRupee className="h-4 w-4" /> Record Payment
+                {editTenant.isPending ? "Saving..." : "Save"}
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <Tabs defaultValue="rent">
-        <TabsList className="grid w-full grid-cols-3 bg-luxury-cream/50">
-          <TabsTrigger value="rent" className="text-luxury-charcoal">
-            Rent History
-          </TabsTrigger>
-          <TabsTrigger value="furniture" className="text-luxury-charcoal">
-            Assigned Furniture
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="text-luxury-charcoal">
-            Documents
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="rent">
-          <Card className="bg-white shadow-lg border border-luxury-cream">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-luxury-charcoal">
-                  Rent History
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={exportRentHistory}
-                  className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                >
-                  <Download className="h-4 w-4 mr-1" /> Export
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {formattedRents.length === 0 ? (
-                <div className="text-center py-10">
-                  <p className="text-luxury-charcoal/70">
-                    No rent history available
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-luxury-cream">
-                    <thead>
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
-                          Month
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
-                          Due Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-luxury-charcoal uppercase tracking-wider">
-                          Paid On
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-luxury-cream">
-                      {formattedRents.map((rent) => (
-                        <tr key={rent.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-luxury-charcoal">
-                            {rent.month}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal/70">
-                            {rent.dueDate}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal">
-                            ₹{rent.amount.toLocaleString()}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span
-                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                rent.status === "paid"
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : "bg-red-100 text-red-800"
-                              }`}
-                            >
-                              {rent.status.charAt(0).toUpperCase() +
-                                rent.status.slice(1)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-luxury-charcoal/70">
-                            {rent.paidOn}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="furniture">
-          <Card className="bg-white shadow-lg border border-luxury-cream">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-luxury-charcoal">
-                  Assigned Furniture
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAssignFurnitureOpen(true)}
-                  className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                >
-                  <Package2 className="h-4 w-4 mr-1" /> Assign More
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {tenant.tenant_furniture && tenant.tenant_furniture.length > 0 ? (
-                <ul className="space-y-2">
-                  {tenant.tenant_furniture.map((item) => (
-                    <li
-                      key={item.furniture_item_id}
-                      className="text-sm text-luxury-charcoal"
-                    >
-                      {item.furniture_items.name}
-                    </li>
+        {/* Assign Flat Modal */}
+        <Dialog open={assignFlatOpen} onOpenChange={setAssignFlatOpen}>
+          <DialogContent className="w-full max-w-lg mx-auto bg-white border border-luxury-cream">
+            <DialogHeader>
+              <DialogTitle className="text-luxury-charcoal">
+                Assign Flat
+              </DialogTitle>
+            </DialogHeader>
+            <div>
+              <Label htmlFor="flat" className="text-luxury-charcoal">
+                Select Flat
+              </Label>
+              <Select value={selectedFlat} onValueChange={setSelectedFlat}>
+                <SelectTrigger className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold">
+                  <SelectValue placeholder="Choose a flat" />
+                </SelectTrigger>
+                <SelectContent>
+                  {flats?.map((flat) => (
+                    <SelectItem key={flat.id} value={flat.id}>
+                      {flat.name}
+                    </SelectItem>
                   ))}
-                </ul>
-              ) : (
-                <div className="text-center py-10">
-                  <p className="text-luxury-charcoal/70">
-                    No furniture assigned yet
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="documents">
-          <Card className="bg-white shadow-lg border border-luxury-cream">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-luxury-charcoal">
-                  Documents
-                </CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setUploadDocOpen(true)}
-                  className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                >
-                  <FilePlus className="h-4 w-4 mr-1" /> Upload
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {tenant.property_documents &&
-              tenant.property_documents.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {tenant.property_documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="border border-luxury-cream rounded-lg p-4"
-                    >
-                      <a
-                        href={
-                          typedSupabase.storage
-                            .from("property_documents")
-                            .getPublicUrl(doc.file_path).data.publicUrl
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center space-x-2 text-luxury-gold hover:text-luxury-gold/80"
-                      >
-                        <svg
-                          className="h-5 w-5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                          />
-                        </svg>
-                        <span className="text-sm truncate text-luxury-charcoal">
-                          {doc.name}
-                        </span>
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-10 border border-dashed border-luxury-cream rounded-lg">
-                  <Upload className="h-10 w-10 text-luxury-charcoal/50 mx-auto mb-3" />
-                  <h3 className="text-sm font-medium text-luxury-charcoal mb-1">
-                    No documents uploaded
-                  </h3>
-                  <p className="text-xs text-luxury-charcoal/70">
-                    Click to upload
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* WhatsApp Modal */}
-      <WhatsAppIntegration
-        open={whatsappOpen}
-        onOpenChange={setWhatsappOpen}
-        recipient={tenant}
-      />
-
-      {/* Edit Tenant Modal */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="bg-white border border-luxury-cream">
-          <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal">
-              Edit Tenant
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="name" className="text-luxury-charcoal">
-                Name
-              </Label>
-              <Input
-                id="name"
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, name: e.target.value })
-                }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-            <div>
-              <Label htmlFor="phone" className="text-luxury-charcoal">
-                Phone
-              </Label>
-              <Input
-                id="phone"
-                value={editForm.phone}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, phone: e.target.value })
-                }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-            <div>
-              <Label htmlFor="email" className="text-luxury-charcoal">
-                Email (Optional)
-              </Label>
-              <Input
-                id="email"
-                value={editForm.email}
-                onChange={(e) =>
-                  setEditForm({ ...editForm, email: e.target.value })
-                }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-            <div>
-              <Label htmlFor="photo" className="text-luxury-charcoal">
-                Tenant Photo (Optional)
-              </Label>
-              <Input
-                id="photo"
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  setEditForm({ ...editForm, photo: e.target.files?.[0] || null })
-                }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-              {editForm.photo && (
-                <p className="text-sm text-luxury-charcoal/70 mt-1">
-                  Selected: {editForm.photo.name}
+                </SelectContent>
+              </Select>
+              {flats?.length === 0 && (
+                <p className="text-sm text-luxury-charcoal/70 mt-2">
+                  No flats available. Create a flat first.
                 </p>
               )}
             </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditOpen(false);
-                setEditForm({ name: "", phone: "", email: "", photo: null });
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => editTenant.mutate(editForm)}
-              disabled={
-                !editForm.name ||
-                !editForm.phone ||
-                editTenant.isPending
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-            >
-              {editTenant.isPending ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setAssignFlatOpen(false)}
+                className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => assignFlat.mutate(selectedFlat)}
+                disabled={!selectedFlat || assignFlat.isPending}
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+              >
+                Assign
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* Assign Flat Modal */}
-      <Dialog open={assignFlatOpen} onOpenChange={setAssignFlatOpen}>
-        <DialogContent className="bg-white border border-luxury-cream">
-          <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal">
-              Assign Flat
-            </DialogTitle>
-          </DialogHeader>
-          <div>
-            <Label htmlFor="flat" className="text-luxury-charcoal">
-              Select Flat
-            </Label>
-            <Select value={selectedFlat} onValueChange={setSelectedFlat}>
-              <SelectTrigger className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold">
-                <SelectValue placeholder="Choose a flat" />
-              </SelectTrigger>
-              <SelectContent>
-                {flats?.map((flat) => (
-                  <SelectItem key={flat.id} value={flat.id}>
-                    {flat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {flats?.length === 0 && (
-              <p className="text-sm text-luxury-charcoal/70 mt-2">
-                No flats available. Create a flat first.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setAssignFlatOpen(false)}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => assignFlat.mutate(selectedFlat)}
-              disabled={!selectedFlat || assignFlat.isPending}
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-            >
-              Assign
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Record Payment Modal */}
-      <Dialog open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen}>
-        <DialogContent className="bg-white border border-luxury-cream">
-          <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal">
-              Record Payment
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="amount" className="text-luxury-charcoal">
-                Amount (₹)
-              </Label>
-              <Input
-                id="amount"
-                type="number"
-                value={paymentForm.amount}
-                onChange={(e) =>
-                  setPaymentForm({ ...paymentForm, amount: e.target.value })
+        {/* Record Payment Modal */}
+        <Dialog open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen}>
+          <DialogContent className="w-full max-w-lg mx-auto bg-white border border-luxury-cream">
+            <DialogHeader>
+              <DialogTitle className="text-luxury-charcoal">
+                Record Payment
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="amount" className="text-luxury-charcoal">
+                  Amount (₹)
+                </Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  value={paymentForm.amount}
+                  onChange={(e) =>
+                    setPaymentForm({ ...paymentForm, amount: e.target.value })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+              <div>
+                <Label htmlFor="paidOn" className="text-luxury-charcoal">
+                  Paid On
+                </Label>
+                <Input
+                  id="paidOn"
+                  type="date"
+                  value={paymentForm.paidOn}
+                  onChange={(e) =>
+                    setPaymentForm({ ...paymentForm, paidOn: e.target.value })
+                  }
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRecordPaymentOpen(false);
+                  setPaymentForm({ amount: "", paidOn: "" });
+                }}
+                className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() =>
+                  recordPayment.mutate({
+                    amount: parseFloat(paymentForm.amount) || 0,
+                    paidOn: paymentForm.paidOn,
+                  })
                 }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-            <div>
-              <Label htmlFor="paidOn" className="text-luxury-charcoal">
-                Paid On
-              </Label>
-              <Input
-                id="paidOn"
-                type="date"
-                value={paymentForm.paidOn}
-                onChange={(e) =>
-                  setPaymentForm({ ...paymentForm, paidOn: e.target.value })
+                disabled={
+                  !paymentForm.amount ||
+                  !paymentForm.paidOn ||
+                  recordPayment.isPending
                 }
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRecordPaymentOpen(false);
-                setPaymentForm({ amount: "", paidOn: "" });
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                recordPayment.mutate({
-                  amount: parseFloat(paymentForm.amount) || 0,
-                  paidOn: paymentForm.paidOn,
-                })
-              }
-              disabled={
-                !paymentForm.amount ||
-                !paymentForm.paidOn ||
-                recordPayment.isPending
-              }
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-            >
-              Record
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+              >
+                Record
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* Assign Furniture Modal */}
-      <Dialog open={assignFurnitureOpen} onOpenChange={setAssignFurnitureOpen}>
-        <DialogContent className="bg-white border border-luxury-cream">
-          <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal">
-              Assign Furniture
-            </DialogTitle>
-          </DialogHeader>
-          <div>
-            <Label htmlFor="furniture" className="text-luxury-charcoal">
-              Select Furniture
-            </Label>
-            <Select
-              value={selectedFurniture}
-              onValueChange={setSelectedFurniture}
-            >
-              <SelectTrigger className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold">
-                <SelectValue placeholder="Choose furniture" />
-              </SelectTrigger>
-              <SelectContent>
-                {furnitureItems?.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {furnitureItems?.length === 0 && (
-              <p className="text-sm text-luxury-charcoal/70 mt-2">
-                No furniture items available. Add items first.
-              </p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setAssignFurnitureOpen(false)}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => assignFurniture.mutate(selectedFurniture)}
-              disabled={!selectedFurniture || assignFurniture.isPending}
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-            >
-              Assign
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* Assign Furniture Modal */}
+        <Dialog open={assignFurnitureOpen} onOpenChange={setAssignFurnitureOpen}>
+          <DialogContent className="w-full max-w-lg mx-auto bg-white border border-luxury-cream">
+            <DialogHeader>
+              <DialogTitle className="text-luxury-charcoal">
+                Assign Furniture
+              </DialogTitle>
+            </DialogHeader>
+            <div>
+              <Label htmlFor="furniture" className="text-luxury-charcoal">
+                Select Furniture
+              </Label>
+              <Select
+                value={selectedFurniture}
+                onValueChange={setSelectedFurniture}
+              >
+                <SelectTrigger className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold">
+                  <SelectValue placeholder="Choose furniture" />
+                </SelectTrigger>
+                <SelectContent>
+                  {furnitureItems?.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {furnitureItems?.length === 0 && (
+                <p className="text-sm text-luxury-charcoal/70 mt-2">
+                  No furniture items available. Add items first.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setAssignFurnitureOpen(false)}
+                className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => assignFurniture.mutate(selectedFurniture)}
+                disabled={!selectedFurniture || assignFurniture.isPending}
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+              >
+                Assign
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* Upload Document Modal */}
-      <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
-        <DialogContent className="bg-white border border-luxury-cream">
-          <DialogHeader>
-            <DialogTitle className="text-luxury-charcoal">
-              Upload Document
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="docName" className="text-luxury-charcoal">
-                Document Name
-              </Label>
-              <Input
-                id="docName"
-                value={docName}
-                onChange={(e) => setDocName(e.target.value)}
-                placeholder="e.g., ID Proof"
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
+        {/* Upload Document Modal */}
+        <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
+          <DialogContent className="w-full max-w-lg mx-auto bg-white border border-luxury-cream">
+            <DialogHeader>
+              <DialogTitle className="text-luxury-charcoal">
+                Upload Document
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="docName" className="text-luxury-charcoal">
+                  Document Name
+                </Label>
+                <Input
+                  id="docName"
+                  value={docName}
+                  onChange={(e) => setDocName(e.target.value)}
+                  placeholder="e.g., ID Proof"
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
+              <div>
+                <Label htmlFor="document" className="text-luxury-charcoal">
+                  Select Document
+                </Label>
+                <Input
+                  id="document"
+                  type="file"
+                  onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                  className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="document" className="text-luxury-charcoal">
-                Select Document
-              </Label>
-              <Input
-                id="document"
-                type="file"
-                onChange={(e) => setDocFile(e.target.files?.[0] || null)}
-                className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setUploadDocOpen(false);
-                setDocFile(null);
-                setDocName("");
-              }}
-              className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                docFile &&
-                uploadDocument.mutate({
-                  file: docFile,
-                  name: docName || docFile.name,
-                })
-              }
-              disabled={!docFile || uploadDocument.isPending}
-              className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-            >
-              Upload
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setUploadDocOpen(false);
+                  setDocFile(null);
+                  setDocName("");
+                }}
+                className="border-luxury-cream text-luxury-charcoal hover:bg-luxury-gold/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() =>
+                  docFile &&
+                  uploadDocument.mutate({
+                    file: docFile,
+                    name: docName || docFile.name,
+                  })
+                }
+                disabled={!docFile || uploadDocument.isPending}
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+              >
+                Upload
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }

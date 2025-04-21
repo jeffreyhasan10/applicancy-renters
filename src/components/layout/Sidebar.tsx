@@ -13,6 +13,7 @@ import {
   Link,
   Menu,
   X,
+  Plug,
 } from "lucide-react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,8 +27,9 @@ const navigation = [
   { name: "Rent", href: "/rent", icon: Receipt },
   { name: "Payment Links", href: "/payment-links", icon: Link },
   { name: "Inventory", href: "/inventory", icon: Package2 },
+  { name: "Appliances", href: "/appliances", icon: Plug }, // Added
   { name: "Reminders", href: "/reminders", icon: MessageSquareWarning },
-  { name: "Expenses", href: "/expenses", icon: IndianRupee }, // Added
+  { name: "Expenses", href: "/expenses", icon: IndianRupee },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

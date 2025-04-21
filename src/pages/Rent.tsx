@@ -971,11 +971,11 @@ export default function Rent() {
                         </div>
                       </div>
                     </div>
-                    <div className="flex justify-end gap-3">
+                    <div className="flex justify-end gap-3 w-full">
                       <Button
                         variant="outline"
                         onClick={resetFilters}
-                        className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700"
+                        className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700 w-full sm:w-auto"
                         aria-label="Reset filters"
                       >
                         Reset
@@ -983,7 +983,7 @@ export default function Rent() {
                       <Button
                         onClick={() => setFilterModalOpen(false)}
                         disabled={!isValidAmountRange()}
-                        className="transition-all duration-200 bg-indigo-600 hover:bg-indigo-700 text-white"
+                        className="transition-all duration-200 bg-indigo-600 hover:bg-indigo-700 text-white w-full sm:w-auto"
                         aria-label="Apply filters"
                       >
                         Apply Filters
@@ -996,10 +996,10 @@ export default function Rent() {
 
             {["all", "paid", "pending"].map((tab) => (
               <TabsContent key={tab} value={tab}>
-                <div className="relative overflow-x-auto rounded-lg border border-gray-200">
-                  <table className="min-w-full divide-y divide-gray-200">
+                <div className="relative overflow-x-auto rounded-lg border border-gray-200 max-h-[calc(100vh-400px)] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                  <table className="w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-10">
-                      <tr>
+                      <tr className="whitespace-nowrap">
                         <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50">
                           <Checkbox
                             checked={selectedRents.length === rentData.data.length}
@@ -1101,7 +1101,7 @@ export default function Rent() {
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.calendarEndDate || "-"}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.paymentFrequency}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <div className="flex space-x-2">
+                              <div className="flex flex-wrap sm:flex-nowrap gap-2">
                                 {rent.tenant !== "No Tenant" && (
                                   <Button
                                     variant="outline"
@@ -1163,8 +1163,8 @@ export default function Rent() {
                     </tbody>
                   </table>
                 </div>
-                <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4">
-                  <div>
+                <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4 w-full">
+                  <div className="w-full sm:w-auto">
                     {selectedRents.length > 0 && (
                       <Button
                         variant="outline"
@@ -1172,14 +1172,14 @@ export default function Rent() {
                         disabled={
                           !selectedRents.some((id) => rentData.data.find((r) => r.id === id && r.status === "pending"))
                         }
-                        className="transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700"
+                        className="transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700 w-full sm:w-auto"
                         aria-label={`Mark ${selectedRents.length} rents as paid`}
                       >
                         Mark {selectedRents.length} as Paid
                       </Button>
                     )}
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 w-full sm:w-auto justify-center">
                     <Button
                       variant="outline"
                       disabled={page === 1}

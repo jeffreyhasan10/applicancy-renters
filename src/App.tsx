@@ -22,6 +22,7 @@ import PaymentVerification from "./pages/PaymentVerification";
 import PaymentLinks from "./pages/PaymentLinks";
 import Flats from "@/pages/Flats";
 import FlatDetail from "@/pages/FlatDetail";
+import Appliances from "@/pages/Appliances";
 
 // Create a client with better error handling and staleTime
 const queryClient = new QueryClient({
@@ -91,16 +92,6 @@ const App = () => (
               }
             />
             <Route
-              path="/flats"
-              element={
-                <ProtectedRoute>
-                  <MainLayout>
-                    <Flats />
-                  </MainLayout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/tenants"
               element={
                 <ProtectedRoute>
@@ -146,6 +137,16 @@ const App = () => (
                 <ProtectedRoute>
                   <MainLayout>
                     <Inventory />
+                  </MainLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/appliances"
+              element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <Appliances />
                   </MainLayout>
                 </ProtectedRoute>
               }

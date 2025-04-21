@@ -38,6 +38,7 @@ import {
   Bell,
   Sun,
   Moon,
+  Link,
 } from "lucide-react";
 import {
   Dialog,
@@ -131,6 +132,9 @@ const EVENT_TYPES = [
   { value: "maintenance_requests", label: "Maintenance", icon: <Wrench className="h-4 w-4" />, color: "#10b981" },
   { value: "reminders", label: "Reminders", icon: <BellRing className="h-4 w-4" />, color: "#8b5cf6" },
   { value: "general", label: "General", icon: <CalendarIcon className="h-4 w-4" />, color: "#6b7280" },
+  { value: "payment_transactions", label: "Payments", icon: <DollarSign className="h-4 w-4" />, color: "#10d981" },
+  { value: "property_documents", label: "Documents", icon: <FileText className="h-4 w-4" />, color: "#818cf8" },
+  { value: "payment_links", label: "Payment Links", icon: <Link className="h-4 w-4" />, color: "#6366f1" },
 ];
 
 const RECURRENCE_OPTIONS = [
@@ -152,7 +156,7 @@ const NOTIFICATION_OPTIONS = [
 ];
 
 const CustomToolbar = ({ onNavigate, onView, view, label }) => (
-  <div className="flex flex-col sm:flex-row justify-between items-center mb-4 p-4 bg-luxury-cream rounded-lg shadow-sm dark:bg-gray-800">
+  <div className="flex flex-col sm:flex-row justify-between items-center mb-4 p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
     <div className="flex items-center gap-2 mb-2 sm:mb-0">
       <Button
         variant="outline"
@@ -325,10 +329,64 @@ export default function CalendarView() {
 
     if (error) {
       toast({ title: "Error fetching events", description: error.message, variant: "destructive" });
-    } else {
-      setEvents(data || []);
+      return;
     }
+
+    // Process recurrent events
+    const processedEvents = [];
+    (data || []).forEach(event => {
+      if (event.recurrence && event.recurrence !== 'none') {
+        // Add recurrent instances based on the recurrence pattern
+        const instances = generateRecurrentInstances(event);
+        processedEvents.push(...instances);
+      } else {
+        processedEvents.push(event);
+      }
+    });
+
+    setEvents(processedEvents);
     setLoading(false);
+  };
+
+  const generateRecurrentInstances = (event: CalendarEvent) => {
+    const instances = [];
+    const startDate = moment(event.start_date);
+    const endDate = moment().add(6, 'months'); // Generate instances for next 6 months
+
+    let currentDate = startDate.clone();
+    while (currentDate.isSameOrBefore(endDate)) {
+      instances.push({
+        ...event,
+        id: `${event.id}-${currentDate.format('YYYY-MM-DD')}`,
+        start_date: currentDate.format(),
+        end_date: event.end_date 
+          ? currentDate.clone().add(moment(event.end_date).diff(startDate)).format()
+          : null
+      });
+
+      // Calculate next occurrence based on recurrence pattern
+      switch (event.recurrence) {
+        case 'daily':
+          currentDate.add(1, 'day');
+          break;
+        case 'weekly':
+          currentDate.add(1, 'week');
+          break;
+        case 'biweekly':
+          currentDate.add(2, 'weeks');
+          break;
+        case 'monthly':
+          currentDate.add(1, 'month');
+          break;
+        case 'yearly':
+          currentDate.add(1, 'year');
+          break;
+        default:
+          currentDate = endDate.clone();
+      }
+    }
+
+    return instances;
   };
 
   const fetchRelatedData = async (event: CalendarEvent) => {
@@ -573,24 +631,93 @@ export default function CalendarView() {
     setCurrentDate(newDate);
   };
 
-  const eventStyleGetter = useCallback((event: any) => {
-    const backgroundColor = EVENT_TYPES.find((type) => type.value === event.resource.related_table)?.color || "#6b7280";
-    const style = {
-      backgroundColor,
-      borderRadius: "4px",
-      opacity: 0.8,
-      color: "white",
-      border: "0px",
-      display: "block",
-      padding: "4px 8px",
+  const handleDragEvent = useCallback(async ({ event, start, end, allDay }) => {
+    if (!event.id) return;
+
+    const updatedEvent = {
+      ...event,
+      start_date: moment(start).format(),
+      end_date: moment(end).format(),
+      all_day: allDay,
     };
-    return { style };
+
+    const { error } = await supabase
+      .from("calendar_events")
+      .update(updatedEvent)
+      .eq("id", event.id);
+
+    if (error) {
+      toast({
+        title: "Error updating event",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Event updated",
+        description: "Event has been moved successfully",
+      });
+      fetchEvents();
+    }
+  }, []);
+
+  const eventStyleGetter = useCallback((event: any) => {
+    const backgroundColor = event.resource.color || 
+      EVENT_TYPES.find((type) => type.value === event.resource.related_table)?.color || 
+      "#6b7280";
+
+    return {
+      style: {
+        backgroundColor,
+        borderRadius: "6px",
+        opacity: 0.9,
+        color: "white",
+        border: "none",
+        display: "block",
+        padding: "4px 8px",
+        fontSize: "0.875rem",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+        transition: "all 0.2s ease",
+        cursor: "pointer",
+        '&:hover': {
+          opacity: 1,
+          transform: "scale(1.02)",
+        },
+      },
+    };
   }, []);
 
   const getEventTypeIcon = (type: string) => {
     const eventType = EVENT_TYPES.find((t) => t.value === type);
     return eventType?.icon || <CalendarIcon className="h-4 w-4" />;
   };
+
+  const EventTooltip = ({ event }) => (
+    <TooltipContent 
+      className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700"
+      side="right"
+    >
+      <div className="space-y-2">
+        <div className="font-semibold">{event.title}</div>
+        {event.description && (
+          <div className="text-sm text-gray-600 dark:text-gray-400">{event.description}</div>
+        )}
+        <div className="text-xs text-gray-500 dark:text-gray-500">
+          {event.allDay ? "All Day" : `${moment(event.start).format("h:mm A")} - ${moment(event.end).format("h:mm A")}`}
+        </div>
+        {event.resource.flat_name && (
+          <div className="text-xs text-gray-500 dark:text-gray-500">
+            Location: {event.resource.flat_name}
+          </div>
+        )}
+        {event.resource.tenant_name && (
+          <div className="text-xs text-gray-500 dark:text-gray-500">
+            Tenant: {event.resource.tenant_name}
+          </div>
+        )}
+      </div>
+    </TooltipContent>
+  );
 
   const calendarEvents = useMemo(() => {
     return events.map((event) => ({
@@ -1021,14 +1148,13 @@ export default function CalendarView() {
                         <span>{event.title}</span>
                       </div>
                     </TooltipTrigger>
-                    <TooltipContent className="dark:bg-gray-700 dark:text-gray-200">
-                      <p><strong>{event.title}</strong></p>
-                      <p>{event.allDay ? "All Day" : `${moment(event.start).format("h:mm A")} - ${moment(event.end).format("h:mm A")}`}</p>
-                      {event.resource.flat_name && <p>Flat: {event.resource.flat_name}</p>}
-                      {event.resource.tenant_name && <p>Tenant: {event.resource.tenant_name}</p>}
-                    </TooltipContent>
+                    <EventTooltip event={event} />
                   </Tooltip>
                 )}
+                onEventDrop={handleDragEvent}
+                onEventResize={handleDragEvent}
+                resizable
+                draggableAccessor={() => true}
               />
             )}
 

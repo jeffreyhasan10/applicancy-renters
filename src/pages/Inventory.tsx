@@ -1,4 +1,3 @@
-// Inventory.tsx
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Package2,
@@ -66,7 +65,8 @@ import { debounce } from "lodash";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@radix-ui/react-tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 import InventoryForm from "../components/forms/InventoryForm";
 import ApplianceRentBreakdown from "../components/forms/ApplianceRentBreakdown";
 
@@ -198,6 +198,12 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
 
       if (error) throw error;
 
+      // Update available quantity
+      await supabase
+        .from("furniture_items")
+        .update({ available_quantity: item.available_quantity - formData.quantity })
+        .eq("id", item.id);
+
       toast({
         title: "Item assigned",
         description: `${formData.quantity} ${item.name}(s) assigned to tenant successfully`,
@@ -216,10 +222,12 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] bg-white rounded-lg shadow-xl">
         <DialogHeader>
-          <DialogTitle>Assign {item.name}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-xl font-semibold text-gray-900">
+            Assign {item.name}
+          </DialogTitle>
+          <DialogDescription className="text-gray-600">
             Assign {item.name} to a tenant. Available: {item.available_quantity}.
           </DialogDescription>
         </DialogHeader>
@@ -304,6 +312,7 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
             <Button
               type="submit"
               disabled={loadingTenants || !formData.tenant_id}
+              className="bg-blue-600 hover:bg-blue-700"
             >
               Assign
             </Button>
@@ -612,6 +621,19 @@ export default function Inventory() {
 
       if (error) throw error;
 
+      // Update available quantity
+      const item = inventoryItems.find((i) => i.id === itemToUnassign.furniture_item_id);
+      if (item) {
+        await supabase
+          .from("furniture_items")
+          .update({
+            available_quantity:
+              item.available_quantity +
+              tenantFurnitureItems.find((tf) => tf.id === itemToUnassign.id)!.assigned_quantity,
+          })
+          .eq("id", itemToUnassign.furniture_item_id);
+      }
+
       toast({
         title: "Item unassigned",
         description: `${itemToUnassign.name} has been unassigned`,
@@ -633,11 +655,6 @@ export default function Inventory() {
   };
 
   const inventoryStats = useMemo(() => ({
-    totalItems: inventoryItems.reduce((sum, item) => sum + item.total_quantity, 0),
-    assignedItems: inventoryItems.reduce(
-      (sum, item) => sum + (item.total_quantity - item.available_quantity),
-      0
-    ),
     totalValue: inventoryItems.reduce(
       (sum, item) => sum + item.purchasePrice * item.total_quantity,
       0
@@ -704,7 +721,9 @@ export default function Inventory() {
     <TooltipProvider>
       <div className="space-y-8 p-6 bg-gray-50 min-h-screen">
         <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-extrabold text-gray-900">Inventory Management</h1>
+          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
+            Inventory Management
+          </h1>
           <div className="flex gap-3">
             <Select
               value={selectedTenant?.id || ""}
@@ -714,7 +733,7 @@ export default function Inventory() {
                 setShowBreakdown(!!tenant);
               }}
             >
-              <SelectTrigger className="w-[220px] bg-white shadow-sm">
+              <SelectTrigger className="w-[220px] bg-white shadow-sm border-gray-200">
                 <SelectValue placeholder="Select tenant for breakdown" />
               </SelectTrigger>
               <SelectContent>
@@ -730,7 +749,7 @@ export default function Inventory() {
                 setEditItem(null);
                 setDialogOpen(true);
               }}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-sm"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-sm transition-all duration-200"
             >
               <Plus className="h-5 w-5" />
               Add Item
@@ -745,33 +764,10 @@ export default function Inventory() {
           />
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="shadow-md">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="shadow-md border border-gray-100">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Total Items</CardTitle>
-              <CardDescription>In inventory</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="animate-pulse h-8 w-16 bg-gray-200 rounded"></div>
-              ) : (
-                <>
-                  <div className="flex items-center">
-                    <Package2 className="h-6 w-6 text-blue-600 mr-3" />
-                    <span className="text-3xl font-bold">{inventoryStats.totalItems}</span>
-                  </div>
-                  <div className="mt-3 flex justify-between text-sm text-gray-600">
-                    <span>Available: {inventoryStats.totalItems - inventoryStats.assignedItems}</span>
-                    <span>Assigned: {inventoryStats.assignedItems}</span>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-md">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Total Value</CardTitle>
+              <CardTitle className="text-lg font-semibold text-gray-800">Total Value</CardTitle>
               <CardDescription>Inventory worth</CardDescription>
             </CardHeader>
             <CardContent>
@@ -779,19 +775,20 @@ export default function Inventory() {
                 <div className="animate-pulse h-8 w-24 bg-gray-200 rounded"></div>
               ) : (
                 <>
-                  <div className="text-3xl font-bold">
+                  <div className="text-3xl font-bold text-gray-800">
                     ₹{inventoryStats.totalValue.toLocaleString()}
                   </div>
                   <div className="mt-3">
                     <div className="text-sm text-gray-600">By category:</div>
                     <div className="flex flex-wrap gap-2 mt-2">
                       {inventoryStats.categories.map(([category, count]) => (
-                        <span
+                        <Badge
                           key={category}
-                          className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800"
+                          variant="secondary"
+                          className="bg-gray-100 text-gray-800"
                         >
                           {category}: {count}
-                        </span>
+                        </Badge>
                       ))}
                     </div>
                   </div>
@@ -800,14 +797,14 @@ export default function Inventory() {
             </CardContent>
           </Card>
 
-          <Card className="shadow-md">
+          <Card className="shadow-md border border-gray-100">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold">Quick Add</CardTitle>
+              <CardTitle className="text-lg font-semibold text-gray-800">Quick Add</CardTitle>
               <CardDescription>Add item to inventory</CardDescription>
             </CardHeader>
             <CardContent>
               <Button
-                className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
+                className="w-full gap-2 bg-blue-600 hover:bg-blue-700 transition-all duration-200"
                 onClick={() => {
                   setEditItem(null);
                   setDialogOpen(true);
@@ -826,9 +823,9 @@ export default function Inventory() {
           </div>
         )}
 
-        <Card className="shadow-md">
+        <Card className="shadow-md border border-gray-100">
           <CardHeader>
-            <CardTitle className="text-2xl font-semibold">Inventory Items</CardTitle>
+            <CardTitle className="text-2xl font-semibold text-gray-800">Inventory Items</CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -843,7 +840,7 @@ export default function Inventory() {
                   <div className="relative w-full sm:w-64">
                     <Input
                       placeholder="Search inventory..."
-                      className="pl-10 pr-3 py-2 bg-white shadow-sm"
+                      className="pl-10 pr-3 py-2 bg-white shadow-sm border-gray-200"
                       onChange={(e) => debouncedSetSearchQuery(e.target.value)}
                     />
                     <div className="absolute inset-y-0 left-0 flex items-center pl-3">
@@ -857,7 +854,7 @@ export default function Inventory() {
                         variant="outline"
                         className={`flex items-center gap-2 ${
                           calendarDateRange.from ? "bg-blue-100 text-blue-700" : ""
-                        }`}
+                        } border-gray-200`}
                       >
                         <Filter className="h-4 w-4" />
                         Filter by Event Date
@@ -899,10 +896,10 @@ export default function Inventory() {
 
               {isFilterActive && (
                 <div className="mb-4 text-sm text-gray-600">
-                  <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
                     Active filters: {searchQuery ? "Search" : ""}{" "}
                     {calendarDateRange.from ? "Date Range" : ""}
-                  </span>
+                  </Badge>
                 </div>
               )}
 
@@ -940,18 +937,29 @@ export default function Inventory() {
                             <TableCell>
                               {item.total_quantity} (Available: {item.available_quantity})
                             </TableCell>
-                            <TableCell>{item.condition}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  item.condition === "new"
+                                    ? "default"
+                                    : item.condition === "used"
+                                    ? "secondary"
+                                    : "destructive"
+                                }
+                              >
+                                {item.condition}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{item.location}</TableCell>
                             <TableCell>
-                              <span
-                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                  item.assigned
-                                    ? "bg-green-100 text-green-800"
-                                    : "bg-blue-100 text-blue-800"
-                                }`}
+                              <Badge
+                                variant={item.assigned ? "default" : "secondary"}
+                                className={
+                                  item.assigned ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"
+                                }
                               >
                                 {item.assigned ? "Assigned" : "Available"}
-                              </span>
+                              </Badge>
                             </TableCell>
                             <TableCell>
                               ₹{item.purchasePrice.toLocaleString()}
@@ -1064,7 +1072,19 @@ export default function Inventory() {
                             <TableCell className="font-medium">{tf.name}</TableCell>
                             <TableCell>{tf.category}</TableCell>
                             <TableCell>{tf.assigned_quantity}</TableCell>
-                            <TableCell>{tf.condition}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  tf.condition === "new"
+                                    ? "default"
+                                    : tf.condition === "used"
+                                    ? "secondary"
+                                    : "destructive"
+                                }
+                              >
+                                {tf.condition}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{tf.location}</TableCell>
                             <TableCell>{tf.tenant}</TableCell>
                             <TableCell>₹{tf.rent_part.toLocaleString()}</TableCell>
@@ -1147,7 +1167,19 @@ export default function Inventory() {
                             <TableCell className="font-medium">{item.name}</TableCell>
                             <TableCell>{item.category}</TableCell>
                             <TableCell>{item.available_quantity}</TableCell>
-                            <TableCell>{item.condition}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  item.condition === "new"
+                                    ? "default"
+                                    : item.condition === "used"
+                                    ? "secondary"
+                                    : "destructive"
+                                }
+                              >
+                                {item.condition}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{item.location}</TableCell>
                             <TableCell>{item.purchaseDate}</TableCell>
                             <TableCell>
