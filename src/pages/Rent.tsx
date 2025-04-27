@@ -633,7 +633,7 @@ export default function Rent() {
   // Validate amount range
   const isValidAmountRange = () => {
     if (filters.amountRange.min !== null && filters.amountRange.min < 0) return false;
-    if (filters.amountRange.max !== null && filters.amountRange.max < 0) return false;
+    if (filters.amountRange.max !== null && filters.amountRange.max < 0) vender
     if (
       filters.amountRange.min !== null &&
       filters.amountRange.max !== null &&
@@ -662,7 +662,7 @@ export default function Rent() {
   }
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 bg-gray-50 min-h-screen">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <PageHeader
         title="Rent Management"
         description="Track and manage rent payments with ease"
@@ -671,7 +671,8 @@ export default function Rent() {
         className="mb-8 text-gray-900"
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+      {/* Stats Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card className="shadow-lg bg-gradient-to-br from-white to-gray-100 hover:shadow-xl transition-all duration-300">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg font-semibold text-gray-800">Total Collection</CardTitle>
@@ -683,7 +684,7 @@ export default function Rent() {
               <span className="text-2xl font-bold text-gray-900">
                 ₹{calculateStats.totalCollection.toLocaleString()}
               </span>
-              <span className="ml-2 text-sm text-gray-500">
+              <span className="ml-2 text-sm plea text-gray-500">
                 of ₹{calculateStats.targetCollection.toLocaleString()}
               </span>
             </div>
@@ -758,6 +759,7 @@ export default function Rent() {
               variant="outline"
               size="sm"
               className="w-full transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700"
+              onClick={() => exportData("csv")}
               aria-label="Export as CSV"
             >
               <Download className="h-4 w-4 mr-2" />
@@ -767,6 +769,7 @@ export default function Rent() {
         </Card>
       </div>
 
+      {/* Transactions Table */}
       <Card className="shadow-lg bg-white border border-gray-100">
         <CardHeader className="flex flex-row justify-between items-center">
           <CardTitle className="text-xl font-semibold text-gray-900">Rent Transactions</CardTitle>
@@ -778,7 +781,7 @@ export default function Rent() {
             aria-label="Refresh data"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Data
+            Refresh
           </Button>
         </CardHeader>
         <CardContent>
@@ -812,8 +815,8 @@ export default function Rent() {
                       Filters
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[650px] w-[90vw] max-h-[85vh] overflow-y-auto rounded-lg bg-white shadow-2xl p-6 sm:p-8 transition-all duration-300">
-                    <DialogHeader className="relative flex items-center justify-between">
+                  <DialogContent className="max-w-[90vw] sm:max-w-[600px] max-h-[80vh] overflow-y-auto rounded-lg bg-white shadow-2xl p-6">
+                    <DialogHeader className="relative">
                       <DialogTitle className="text-xl font-semibold text-gray-900">
                         Filter Rent Transactions
                       </DialogTitle>
@@ -827,7 +830,7 @@ export default function Rent() {
                         <X className="h-5 w-5 text-gray-600" />
                       </Button>
                     </DialogHeader>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-6">
+                    <div className="grid grid-cols-1 gap-6 py-6">
                       <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700">Flat</Label>
                         <Select
@@ -908,7 +911,7 @@ export default function Rent() {
                             ...prev,
                             dateRange: { from: range?.from || null, to: range?.to || null },
                           }))}
-                          className="rounded-lg border border-gray-200 shadow-sm"
+                          className="rounded-lg border border-gray-200 shadow-sm w-full"
                         />
                       </div>
                       <div className="space-y-2">
@@ -923,10 +926,10 @@ export default function Rent() {
                             ...prev,
                             calendarEventRange: { from: range?.from || null, to: range?.to || null },
                           }))}
-                          className="rounded-lg border border-gray-200 shadow-sm"
+                          className="rounded-lg border border-gray-200 shadow-sm w-full"
                         />
                       </div>
-                      <div className="space-y-2 sm:col-span-2">
+                      <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700">Amount Range</Label>
                         <div className="flex flex-col sm:flex-row gap-4">
                           <div className="flex-1">
@@ -971,11 +974,11 @@ export default function Rent() {
                         </div>
                       </div>
                     </div>
-                    <div className="flex justify-end gap-3 w-full">
+                    <div className="flex justify-end gap-3">
                       <Button
                         variant="outline"
                         onClick={resetFilters}
-                        className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700 w-full sm:w-auto"
+                        className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700"
                         aria-label="Reset filters"
                       >
                         Reset
@@ -983,7 +986,7 @@ export default function Rent() {
                       <Button
                         onClick={() => setFilterModalOpen(false)}
                         disabled={!isValidAmountRange()}
-                        className="transition-all duration-200 bg-indigo-600 hover:bg-indigo-700 text-white w-full sm:w-auto"
+                        className="transition-all duration-200 bg-indigo-600 hover:bg-indigo-700 text-white"
                         aria-label="Apply filters"
                       >
                         Apply Filters
@@ -996,11 +999,12 @@ export default function Rent() {
 
             {["all", "paid", "pending"].map((tab) => (
               <TabsContent key={tab} value={tab}>
-                <div className="relative overflow-x-auto rounded-lg border border-gray-200 max-h-[calc(100vh-400px)] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto rounded-lg border border-gray-200 max-h-[60vh] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
                   <table className="w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr className="whitespace-nowrap">
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50">
                           <Checkbox
                             checked={selectedRents.length === rentData.data.length}
                             onCheckedChange={toggleSelectAll}
@@ -1008,54 +1012,54 @@ export default function Rent() {
                           />
                         </th>
                         <th
-                          className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("flatName")}
                         >
                           Flat {sortField === "flatName" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
                         <th
-                          className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("tenantCount")}
                         >
                           Tenants {sortField === "tenantCount" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
                         <th
-                          className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("tenant")}
                         >
                           Tenant {sortField === "tenant" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
                         <th
-                          className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("due_date")}
                         >
                           Due Date {sortField === "due_date" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
                         <th
-                          className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("amount")}
                         >
                           Amount {sortField === "amount" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Target Rent
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Status
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Payment Date
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Calendar Event Start
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Calendar Start
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Calendar Event End
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Calendar End
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Payment Frequency
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Frequency
                         </th>
-                        <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
                         </th>
                       </tr>
@@ -1074,20 +1078,20 @@ export default function Rent() {
                             key={rent.id}
                             className={`hover:bg-gray-50 transition-colors duration-150 ${index % 2 === 0 ? "bg-gray-50" : "bg-white"}`}
                           >
-                            <td className="px-6 py-4 whitespace-nowrap sticky left-0 bg-inherit">
+                            <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-inherit">
                               <Checkbox
                                 checked={selectedRents.includes(rent.id)}
                                 onCheckedChange={() => toggleSelectRent(rent.id)}
                                 aria-label={`Select rent for ${rent.tenant}`}
                               />
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{rent.flatName}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.tenantCount}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.tenant}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.dueDate}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₹{rent.amount.toLocaleString()}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">₹{rent.monthlyRentTarget?.toLocaleString() || "N/A"}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 line-clamp-1">{rent.flatName}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.tenantCount}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 line-clamp-1">{rent.tenant}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.dueDate}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">₹{rent.amount.toLocaleString()}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">₹{rent.monthlyRentTarget?.toLocaleString() || "N/A"}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">
                               <span
                                 className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                   rent.status === "paid" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
@@ -1096,12 +1100,12 @@ export default function Rent() {
                                 {rent.status === "paid" ? "Paid" : "Pending"}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.paidOn || "-"}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.calendarStartDate || "-"}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.calendarEndDate || "-"}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{rent.paymentFrequency}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.paidOn || "-"}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.calendarStartDate || "-"}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.calendarEndDate || "-"}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.paymentFrequency}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                              <div className="flex gap-2">
                                 {rent.tenant !== "No Tenant" && (
                                   <Button
                                     variant="outline"
@@ -1116,7 +1120,7 @@ export default function Rent() {
                                       rent.customMessage
                                     )}
                                     title="Send Reminder"
-                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600 transition-all duration-200"
+                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600"
                                     aria-label={`Send reminder to ${rent.tenant}`}
                                   >
                                     <MessageSquare className="h-4 w-4" />
@@ -1128,7 +1132,7 @@ export default function Rent() {
                                     size="icon"
                                     onClick={() => openCustomMessageModal(rent)}
                                     title="Custom Message"
-                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600 transition-all duration-200"
+                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600"
                                     aria-label={`Edit custom message for ${rent.tenant}`}
                                   >
                                     <CreditCard className="h-4 w-4" />
@@ -1139,7 +1143,7 @@ export default function Rent() {
                                   size="icon"
                                   onClick={() => deleteRentMutation.mutate(rent.id)}
                                   title="Delete Rent Record"
-                                  className="hover:bg-red-700 transition-all duration-200"
+                                  className="hover:bg-red-700"
                                   aria-label={`Delete rent record for ${rent.tenant}`}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -1150,10 +1154,10 @@ export default function Rent() {
                                     size="sm"
                                     onClick={() => markAsPaidMutation.mutate(rent.id)}
                                     title="Mark as Paid"
-                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600 transition-all duration-200"
+                                    className="hover:bg-indigo-50 border-indigo-300 text-indigo-600"
                                     aria-label={`Mark as paid for ${rent.tenant}`}
                                   >
-                                    Mark as Paid
+                                    Mark Paid
                                   </Button>
                                 )}
                               </div>
@@ -1163,7 +1167,83 @@ export default function Rent() {
                     </tbody>
                   </table>
                 </div>
-                <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4 w-full">
+
+                {/* Mobile Card View */}
+                <div className="md:hidden space-y-4">
+                  {rentData.data
+                    .filter((rent) =>
+                      (tab === "all" || rent.status === tab) &&
+                      (rent.flatName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        rent.tenant.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        rent.phone.includes(searchQuery) ||
+                        rent.flat_id.includes(searchQuery))
+                    )
+                    .map((rent) => (
+                      <Card key={rent.id} className="shadow-sm">
+                        <CardContent className="pt-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <Checkbox
+                              checked={selectedRents.includes(rent.id)}
+                              onCheckedChange={() => toggleSelectRent(rent.id)}
+                              aria-label={`Select rent for ${rent.tenant}`}
+                            />
+                            <span
+                              className={`px-3 py-1 text-xs font-semibold rounded-full ${
+                                rent.status === "paid" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              {rent.status === "paid" ? "Paid" : "Pending"}
+                            </span>
+                          </div>
+                          <div className="space-y-2 text-sm">
+                            <p><strong>Flat:</strong> {rent.flatName}</p>
+                            <p><strong>Tenant:</strong> {rent.tenant}</p>
+                            <p><strong>Due Date:</strong> {rent.dueDate}</p>
+                            <p><strong>Amount:</strong> ₹{rent.amount.toLocaleString()}</p>
+                            <p><strong>Target Rent:</strong> ₹{rent.monthlyRentTarget?.toLocaleString() || "N/A"}</p>
+                            <p><strong>Payment Date:</strong> {rent.paidOn || "-"}</p>
+                            <p><strong>Frequency:</strong> {rent.paymentFrequency}</p>
+                          </div>
+                          <div className="flex gap-2 mt-4">
+                            {rent.tenant !== "No Tenant" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => sendReminder(
+                                  rent.id,
+                                  rent.tenant_id,
+                                  rent.tenant,
+                                  rent.phone,
+                                  rent.amount,
+                                  rent.dueDate,
+                                  rent.customMessage
+                                )}
+                                className="flex-1"
+                                aria-label={`Send reminder to ${rent.tenant}`}
+                              >
+                                <MessageSquare className="h-4 w-4 mr-2" />
+                                Reminder
+                              </Button>
+                            )}
+                            {rent.status !== "paid" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => markAsPaidMutation.mutate(rent.id)}
+                                className="flex-1"
+                                aria-label={`Mark as paid for ${rent.tenant}`}
+                              >
+                                Mark Paid
+                              </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </div>
+
+                {/* Pagination */}
+                <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4">
                   <div className="w-full sm:w-auto">
                     {selectedRents.length > 0 && (
                       <Button
@@ -1172,19 +1252,18 @@ export default function Rent() {
                         disabled={
                           !selectedRents.some((id) => rentData.data.find((r) => r.id === id && r.status === "pending"))
                         }
-                        className="transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700 w-full sm:w-auto"
+                        className="w-full sm:w-auto"
                         aria-label={`Mark ${selectedRents.length} rents as paid`}
                       >
                         Mark {selectedRents.length} as Paid
                       </Button>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 w-full sm:w-auto justify-center">
+                  <div className="flex items-center gap-3">
                     <Button
                       variant="outline"
                       disabled={page === 1}
                       onClick={() => setPage((p) => p - 1)}
-                      className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700"
                       aria-label="Previous page"
                     >
                       Previous
@@ -1194,7 +1273,6 @@ export default function Rent() {
                       variant="outline"
                       disabled={page === totalPages}
                       onClick={() => setPage((p) => p + 1)}
-                      className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700"
                       aria-label="Next page"
                     >
                       Next
@@ -1207,10 +1285,10 @@ export default function Rent() {
         </CardContent>
       </Card>
 
-      {/* Custom message modal */}
+      {/* Custom Message Modal */}
       <Dialog open={customMessageModalOpen} onOpenChange={setCustomMessageModalOpen}>
-        <DialogContent className="sm:max-w-[500px] w-[90vw] rounded-lg bg-white shadow-2xl p-6 sm:p-8 transition-all duration-300">
-          <DialogHeader className="relative flex items-center justify-between">
+        <DialogContent className="max-w-[90vw] sm:max-w-[500px] rounded-lg bg-white shadow-2xl p-6">
+          <DialogHeader className="relative">
             <DialogTitle className="text-xl font-semibold text-gray-900">Custom Reminder Message</DialogTitle>
             <Button
               variant="ghost"
@@ -1227,7 +1305,7 @@ export default function Rent() {
               Customize the WhatsApp message for {selectedRent?.tenant || "tenant"}
             </p>
             <textarea
-              className="w-full border border-gray-300 rounded-lg p-3 h-32 focus:ring-2 focus:ring-indigo-500 resize-none transition-all duration-200"
+              className="w-full border border-gray-300 rounded-lg p-3 h-32 focus:ring-2 focus:ring-indigo-500 resize-none"
               value={customMessageText}
               onChange={(e) => setCustomMessageText(e.target.value)}
               placeholder="Type your custom message here..."
@@ -1238,17 +1316,16 @@ export default function Rent() {
             <Button
               variant="outline"
               onClick={() => setCustomMessageModalOpen(false)}
-              className="transition-all duration-200 hover:bg-gray-50 border-gray-300 text-gray-700"
               aria-label="Cancel custom message"
             >
               Cancel
             </Button>
             <Button
               onClick={saveCustomMessage}
-              className="transition-all duration-200 bg-indigo-600 hover:bg-indigo-700 text-white"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
               aria-label="Save custom message"
             >
-              Save Message
+              Save
             </Button>
           </div>
         </DialogContent>

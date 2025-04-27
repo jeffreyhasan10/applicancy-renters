@@ -31,7 +31,6 @@ import PageHeader from "@/components/common/PageHeader";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-
 import {
   Tooltip,
   TooltipContent,
@@ -39,6 +38,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { format } from "date-fns";
 
 interface DashboardStats {
   totalExpenses: number;
@@ -49,11 +57,13 @@ interface DashboardStats {
   currentMonthRevenue: number;
   totalFlats: number;
   occupiedFlats: number;
+  totalSecurityDeposit: number;
   comparisons: {
     expenses: number;
     pendingRents: number;
     revenue: number;
     flats: number;
+    securityDeposit: number;
   };
 }
 
@@ -75,11 +85,13 @@ export default function Dashboard() {
     currentMonthRevenue: 0,
     totalFlats: 0,
     occupiedFlats: 0,
+    totalSecurityDeposit: 0,
     comparisons: {
       expenses: 0,
       pendingRents: 0,
       revenue: 0,
       flats: 0,
+      securityDeposit: 0,
     },
   });
   const [loading, setLoading] = useState(true);
@@ -90,7 +102,12 @@ export default function Dashboard() {
     reminder: false,
     expense: false,
     calendar: false,
+    filterCalendar: false,
   });
+  const [filterDateRange, setFilterDateRange] = useState<{
+    from: Date | undefined;
+    to: Date | undefined;
+  }>({ from: undefined, to: undefined });
 
   const toggleModal = (type: keyof typeof modalStates) => {
     setModalStates((prev) => ({
@@ -99,17 +116,29 @@ export default function Dashboard() {
     }));
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (
+    dateRange?: { from: Date; to: Date } | null
+  ) => {
     try {
       setLoading(true);
 
       // Fetch total expenses
       const currentYear = new Date().getFullYear();
-      const { data: expensesData, error: expensesError } = await supabase
+      let expensesQuery = supabase
         .from("expenses")
         .select("amount")
         .gte("date", `${currentYear}-01-01`)
         .lte("date", `${currentYear}-12-31`);
+
+      if (dateRange) {
+        expensesQuery = supabase
+          .from("expenses")
+          .select("amount")
+          .gte("date", format(dateRange.from, "yyyy-MM-dd"))
+          .lte("date", format(dateRange.to, "yyyy-MM-dd"));
+      }
+
+      const { data: expensesData, error: expensesError } = await expensesQuery;
 
       if (expensesError) throw new Error(expensesError.message);
 
@@ -140,12 +169,23 @@ export default function Dashboard() {
 
       // Fetch pending rents
       const currentDate = new Date().toISOString().split("T")[0];
-      const { data: pendingRentsData, error: pendingRentsError } =
-        await supabase
+      let pendingRentsQuery = supabase
+        .from("rents")
+        .select("amount")
+        .eq("is_paid", false)
+        .lte("due_date", currentDate);
+
+      if (dateRange) {
+        pendingRentsQuery = supabase
           .from("rents")
           .select("amount")
           .eq("is_paid", false)
-          .lte("due_date", currentDate);
+          .gte("due_date", format(dateRange.from, "yyyy-MM-dd"))
+          .lte("due_date", format(dateRange.to, "yyyy-MM-dd"));
+      }
+
+      const { data: pendingRentsData, error: pendingRentsError } =
+        await pendingRentsQuery;
 
       if (pendingRentsError) throw new Error(pendingRentsError.message);
 
@@ -183,18 +223,35 @@ export default function Dashboard() {
 
       // Fetch current month revenue
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const { data: revenueData, error: revenueError } = await supabase
+      let revenueQuery = supabase
         .from("rents")
         .select("amount, paid_on")
         .eq("is_paid", true)
         .not("paid_on", "is", null);
+
+      if (dateRange) {
+        revenueQuery = supabase
+          .from("rents")
+          .select("amount, paid_on")
+          .eq("is_paid", true)
+          .gte("paid_on", format(dateRange.from, "yyyy-MM-dd"))
+          .lte("paid_on", format(dateRange.to, "yyyy-MM-dd"));
+      }
+
+      const { data: revenueData, error: revenueError } = await revenueQuery;
 
       if (revenueError) throw new Error(revenueError.message);
 
       const lastMonthString = lastMonth.toISOString().slice(0, 7);
 
       const currentMonthRevenue = (revenueData || [])
-        .filter((rent) => rent.paid_on?.startsWith(currentMonth))
+        .filter(
+          (rent) =>
+            !dateRange && rent.paid_on?.startsWith(currentMonth) ||
+            (dateRange &&
+              rent.paid_on >= format(dateRange.from, "yyyy-MM-dd") &&
+              rent.paid_on <= format(dateRange.to, "yyyy-MM-dd"))
+        )
         .reduce((sum, rent) => sum + (parseFloat(rent.amount) || 0), 0);
 
       const lastMonthRevenue = (revenueData || [])
@@ -209,7 +266,7 @@ export default function Dashboard() {
       // Fetch total flats
       const { data: flatsData, error: flatsError } = await supabase
         .from("flats")
-        .select("id");
+        .select("id, security_deposit");
 
       if (flatsError) throw new Error(flatsError.message);
 
@@ -220,6 +277,32 @@ export default function Dashboard() {
           .lte("created_at", lastMonthDate);
 
       if (lastMonthFlatsError) throw new Error(lastMonthFlatsError.message);
+
+      // Fetch security deposit
+      const totalSecurityDeposit = (flatsData || []).reduce(
+        (sum, flat) => sum + (parseFloat(flat.security_deposit) || 0),
+        0
+      );
+
+      const { data: lastMonthSecurityDeposits, error: lastMonthSecurityError } =
+        await supabase
+          .from("flats")
+          .select("security_deposit")
+          .lte("created_at", lastMonthDate);
+
+      if (lastMonthSecurityError) throw new Error(lastMonthSecurityError.message);
+
+      const lastMonthSecurityDeposit = (lastMonthSecurityDeposits || []).reduce(
+        (sum, flat) => sum + (parseFloat(flat.security_deposit) || 0),
+        0
+      );
+
+      const securityDepositComparison =
+        lastMonthSecurityDeposit > 0
+          ? ((totalSecurityDeposit - lastMonthSecurityDeposit) /
+              lastMonthSecurityDeposit) *
+            100
+          : 0;
 
       // Fetch occupied flats
       const { data: occupiedFlatsData, error: occupiedFlatsError } =
@@ -255,11 +338,13 @@ export default function Dashboard() {
         currentMonthRevenue,
         totalFlats: flatsData?.length || 0,
         occupiedFlats: uniqueOccupiedFlats.length,
+        totalSecurityDeposit,
         comparisons: {
           expenses: expenseComparison,
           pendingRents: pendingRentsComparison,
           revenue: revenueComparison,
           flats: flatsComparison,
+          securityDeposit: securityDepositComparison,
         },
       });
     } catch (error: any) {
@@ -282,14 +367,35 @@ export default function Dashboard() {
   }, []);
 
   const handleFormSuccess = () => {
+    fetchDashboardData(filterDateRange.from && filterDateRange.to ? filterDateRange : null);
+  };
+
+  const handleFilterApply = () => {
+    if (filterDateRange.from && filterDateRange.to) {
+      fetchDashboardData(filterDateRange);
+      toggleModal("filterCalendar");
+    } else {
+      toast({
+        title: "Invalid Date Range",
+        description: "Please select both start and end dates.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleFilterReset = () => {
+    setFilterDateRange({ from: undefined, to: undefined });
     fetchDashboardData();
+    toggleModal("filterCalendar");
   };
 
   const formattedStats: Stat[] = [
     {
       title: "Total Expenses",
       value: loading ? "..." : `₹${stats.totalExpenses.toLocaleString()}`,
-      description: "This year",
+      description: filterDateRange.from && filterDateRange.to
+        ? `${format(filterDateRange.from, "MMM d, yyyy")} - ${format(filterDateRange.to, "MMM d, yyyy")}`
+        : "This year",
       icon: <IndianRupee className="h-6 w-6 text-red-600" />,
       trendValue: stats.comparisons.expenses,
       trendText: "from last year",
@@ -311,10 +417,12 @@ export default function Dashboard() {
     {
       title: "This Month Revenue",
       value: loading ? "..." : `₹${stats.currentMonthRevenue.toLocaleString()}`,
-      description: new Date().toLocaleString("default", {
-        month: "long",
-        year: "numeric",
-      }),
+      description: filterDateRange.from && filterDateRange.to
+        ? `${format(filterDateRange.from, "MMM d, yyyy")} - ${format(filterDateRange.to, "MMM d, yyyy")}`
+        : new Date().toLocaleString("default", {
+            month: "long",
+            year: "numeric",
+          }),
       icon: <BarChart3 className="h-6 w-6 text-emerald-600" />,
       trendValue: stats.comparisons.revenue,
       trendText: "from last month",
@@ -332,6 +440,17 @@ export default function Dashboard() {
       className:
         "border-blue-200 bg-white hover:bg-blue-50 transition-colors duration-300",
       iconBg: "bg-blue-100",
+    },
+    {
+      title: "Security Deposit",
+      value: loading ? "..." : `₹${stats.totalSecurityDeposit.toLocaleString()}`,
+      description: "Total collected",
+      icon: <IndianRupee className="h-6 w-6 text-purple-600" />,
+      trendValue: stats.comparisons.securityDeposit,
+      trendText: "from last month",
+      className:
+        "border-purple-200 bg-white hover:bg-purple-50 transition-colors duration-300",
+      iconBg: "bg-purple-100",
     },
   ];
 
@@ -408,7 +527,7 @@ export default function Dashboard() {
     },
   ];
 
-  // Enhanced StatCard component
+  // Enhanced StatCard component with filter button
   const CustomStatCard = ({
     title,
     value,
@@ -427,9 +546,29 @@ export default function Dashboard() {
     >
       <div className="flex justify-between items-start">
         <div className="space-y-2">
-          <p className="text-gray-600 font-medium text-sm sm:text-base tracking-wide">
-            {title}
-          </p>
+          <div className="flex items-center space-x-2">
+            <p className="text-gray-600 font-medium text-sm sm:text-base tracking-wide">
+              {title}
+            </p>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => toggleModal("filterCalendar")}
+                    className="h-6 w-6 text-gray-500 hover:text-gray-700"
+                    aria-label={`Filter ${title} by date`}
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Filter by date range
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <p className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
             {value}
           </p>
@@ -545,7 +684,7 @@ export default function Dashboard() {
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 max-w-full"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 max-w-full"
       >
         {formattedStats.map((stat, index) => (
           <CustomStatCard key={index} {...stat} />
@@ -669,6 +808,61 @@ export default function Dashboard() {
               <div className="p-4 overflow-y-auto max-h-[calc(90vh-64px)]">
                 <CalendarView />
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Filter Calendar Modal */}
+      <AnimatePresence>
+        {modalStates.filterCalendar && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-x-hidden"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-lg"
+            >
+              <Dialog open={modalStates.filterCalendar} onOpenChange={() => toggleModal("filterCalendar")}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Select Date Range</DialogTitle>
+                  </DialogHeader>
+                  <div className="py-4">
+                    <CalendarComponent
+                      mode="range"
+                      selected={{
+                        from: filterDateRange.from,
+                        to: filterDateRange.to,
+                      }}
+                      onSelect={(range) => setFilterDateRange(range || { from: undefined, to: undefined })}
+                      className="rounded-md border"
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={handleFilterReset}
+                      className="mr-2"
+                    >
+                      Reset
+                    </Button>
+                    <Button
+                      onClick={handleFilterApply}
+                      disabled={!filterDateRange.from || !filterDateRange.to}
+                    >
+                      Apply
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </motion.div>
           </motion.div>
         )}

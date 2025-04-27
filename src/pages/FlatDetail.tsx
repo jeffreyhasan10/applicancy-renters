@@ -12,6 +12,7 @@ import {
   Banknote,
   Shield,
   Tag,
+  Sofa,
   FileText,
   Phone,
   Mail,
@@ -79,7 +80,33 @@ interface Flat {
     | null;
   property_tags: { id: string; tag_name: string }[] | null;
 }
+interface FurnitureItem {
+  id: string;
+  flat_id: string;
+  name: string;
+  unit_rent: number;
+  condition: string;
+  total_quantity: number;
+  available_quantity: number;
+  purchase_date: string;
+  purchase_price: number;
+  category: string;
+  is_appliance: boolean;
+}
 
+interface FurnitureForm {
+  name: string;
+  unit_rent: string;
+}
+
+interface TenantFurnitureForm {
+  furniture_item_id: string;
+  category: string;
+  assigned_quantity: string;
+  purchase_price: string;
+  purchase_date: string;
+  condition: string;
+}
 interface TenantForm {
   name: string;
   phone: string;
@@ -174,6 +201,31 @@ const FlatDetail = () => {
     category: "",
     description: "",
   });
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear.toString());
+  const generateMonthlyFilters = (year) => {
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    return months.map((month) => ({
+      month: `${month} ${year}`,
+      status: "all",
+    }));
+  };
+  const [monthlyStatusFilters, setMonthlyStatusFilters] = useState(
+    generateMonthlyFilters(currentYear)
+  );
   const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null);
   const [addTenantOpen, setAddTenantOpen] = useState(false);
   const [assignTenantOpen, setAssignTenantOpen] = useState(false);
@@ -182,6 +234,21 @@ const FlatDetail = () => {
   const [createMaintenanceOpen, setCreateMaintenanceOpen] = useState(false);
   const [sendPaymentLinksOpen, setSendPaymentLinksOpen] = useState(false);
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
+  const [addFurnitureOpen, setAddFurnitureOpen] = useState(false);
+  const [addTenantFurnitureOpen, setAddTenantFurnitureOpen] = useState(false);
+  const [furnitureForm, setFurnitureForm] = useState<FurnitureForm>({
+    name: "",
+    unit_rent: "",
+  });
+  const [tenantFurnitureForm, setTenantFurnitureForm] =
+    useState<TenantFurnitureForm>({
+      furniture_item_id: "",
+      category: "",
+      assigned_quantity: "1",
+      purchase_price: "",
+      purchase_date: format(new Date(), "yyyy-MM-dd"),
+      condition: "new",
+    });
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [tenantForm, setTenantForm] = useState<TenantForm>({
     name: "",
@@ -204,6 +271,10 @@ const FlatDetail = () => {
   const [selectedTenant, setSelectedTenant] = useState<string>("");
   const [docFile, setDocFile] = useState<File | null>(null);
   const [docName, setDocName] = useState<string>("");
+  useEffect(() => {
+    setMonthlyStatusFilters(generateMonthlyFilters(Number(selectedYear)));
+    setPage(1);
+  }, [selectedYear]);
   const [tenantPhoto, setTenantPhoto] = useState<File | null>(null);
   const [docType, setDocType] = useState<string>("other");
   const [activeTab, setActiveTab] = useState("details");
@@ -281,7 +352,23 @@ const FlatDetail = () => {
       return data || [];
     },
   });
-
+  // Fetch furniture items
+  const { data: furnitureItems, isLoading: furnitureLoading } = useQuery<
+    FurnitureItem[]
+  >({
+    queryKey: ["furniture_items", id, page],
+    queryFn: async () => {
+      const { data, error } = await typedSupabase
+        .from("furniture_items")
+        .select("*")
+        .eq("flat_id", id)
+        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!id,
+  });
   // Fetch maintenance requests with pagination
   const { data: maintenanceRequests, isLoading: maintenanceLoading } = useQuery<
     MaintenanceRequest[]
@@ -371,6 +458,32 @@ const FlatDetail = () => {
     enabled: !!id,
   });
 
+  // Fetch tenant furniture assignments
+  const { data: tenantFurniture, isLoading: tenantFurnitureLoading } = useQuery(
+    {
+      queryKey: ["tenant_furniture", id, page],
+      queryFn: async () => {
+        const { data, error } = await typedSupabase
+          .from("tenant_furniture")
+          .select(
+            `
+        id,
+        assigned_quantity,
+        assigned_on,
+        rent_part,
+        furniture_item:furniture_items(id, name, unit_rent, category, condition, purchase_date, purchase_price),
+        tenant:tenants(id, name)
+      `
+          )
+          .eq("tenant.flat_id", id)
+          .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
+          .order("assigned_on", { ascending: false });
+        if (error) throw new Error(error.message);
+        return data || [];
+      },
+      enabled: !!id,
+    }
+  );
   // Add tenant mutation
   const addTenantMutation = useMutation({
     mutationFn: async ({ name, phone, email }: TenantForm) => {
@@ -638,7 +751,108 @@ const FlatDetail = () => {
       });
     },
   });
+  const addFurnitureMutation = useMutation({
+    mutationFn: async ({ name, unit_rent }: FurnitureForm) => {
+      const { data, error } = await typedSupabase
+        .from("furniture_items")
+        .insert({
+          flat_id: id,
+          name,
+          unit_rent: Number(unit_rent),
+          condition: "new",
+          total_quantity: 1,
+          available_quantity: 1,
+          purchase_date: new Date().toISOString().split("T")[0],
+          purchase_price: 0,
+          category: "Furniture",
+          is_appliance: false,
+        })
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["furniture_items", id] });
+      toast({
+        title: "Success",
+        description: "Furniture item added successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+      setAddFurnitureOpen(false);
+      setFurnitureForm({ name: "", unit_rent: "" });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to add furniture item",
+      });
+    },
+  });
+  const assignFurnitureMutation = useMutation({
+    mutationFn: async (form: TenantFurnitureForm) => {
+      const { data: furniture, error: fetchError } = await typedSupabase
+        .from("furniture_items")
+        .select("available_quantity")
+        .eq("id", form.furniture_item_id)
+        .single();
+      if (fetchError) throw new Error(fetchError.message);
+      if (!furniture) throw new Error("Furniture item not found");
+      if (furniture.available_quantity < Number(form.assigned_quantity)) {
+        throw new Error("Not enough available quantity");
+      }
 
+      const { data, error } = await typedSupabase
+        .from("tenant_furniture")
+        .insert({
+          tenant_id: flat.tenants?.[0]?.id,
+          furniture_item_id: form.furniture_item_id,
+          assigned_quantity: Number(form.assigned_quantity),
+          rent_part: Number(form.purchase_price),
+        })
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+
+      // Update available quantity
+      const { error: updateError } = await typedSupabase
+        .from("furniture_items")
+        .update({
+          available_quantity:
+            furniture.available_quantity - Number(form.assigned_quantity),
+        })
+        .eq("id", form.furniture_item_id);
+      if (updateError) throw new Error(updateError.message);
+
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenant_furniture", id] });
+      queryClient.invalidateQueries({ queryKey: ["furniture_items", id] });
+      toast({
+        title: "Success",
+        description: "Furniture assigned successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+      setAddTenantFurnitureOpen(false);
+      setTenantFurnitureForm({
+        furniture_item_id: "",
+        category: "",
+        assigned_quantity: "1",
+        purchase_price: "",
+        purchase_date: format(new Date(), "yyyy-MM-dd"),
+        condition: "new",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to assign furniture",
+      });
+    },
+  });
   // Create payment links mutation
   const createPaymentLinksMutation = useMutation({
     mutationFn: async ({
@@ -907,7 +1121,7 @@ const FlatDetail = () => {
   }
 
   return (
-    <div 
+    <div
       className="w-full min-h-screen bg-luxury-softwhite px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 overflow-x-hidden"
       role="main"
       aria-label="Property Details"
@@ -959,7 +1173,6 @@ const FlatDetail = () => {
           </Button>
         </div>
       </div>
-
       {/* Tabs Navigation */}
       <Tabs
         value={activeTab}
@@ -967,7 +1180,8 @@ const FlatDetail = () => {
         className="w-full"
         aria-label="Property tabs"
       >
-        <TabsList className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-6 sm:mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1 gap-1 overflow-x-auto">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 mb-6 sm:mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1 gap-1 overflow-x-auto">
+          {" "}
           <TabsTrigger
             value="details"
             className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
@@ -994,6 +1208,13 @@ const FlatDetail = () => {
             className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
           >
             Rent Collection
+          </TabsTrigger>
+          <TabsTrigger
+            value="furniture"
+            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
+          >
+            Furniture{" "}
+            {furnitureItems?.length ? `(${furnitureItems.length})` : ""}
           </TabsTrigger>
           <TabsTrigger
             value="maintenance"
@@ -1217,6 +1438,354 @@ const FlatDetail = () => {
                             <Users2 className="h-4 w-4 mr-2" /> Add Tenant
                           </Button>
                         )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="furniture" className="mt-0">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+                <div className="lg:col-span-2">
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                          <Sofa className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Furniture Inventory
+                        </CardTitle>
+                        <div className="flex space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddFurnitureOpen(true)}
+                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                            aria-label="Add new furniture item"
+                          >
+                            <FilePlus className="h-4 w-4 mr-1" /> New Item
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddTenantFurnitureOpen(true)}
+                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+                            aria-label="Assign furniture"
+                            disabled={
+                              !flat.tenants || flat.tenants.length === 0
+                            }
+                          >
+                            <Sofa className="h-4 w-4 mr-1" /> Assign
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      {furnitureLoading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="animate-pulse border border-luxury-cream rounded-lg p-4"
+                            >
+                              <div className="space-y-2">
+                                <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
+                                <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : furnitureItems && furnitureItems.length > 0 ? (
+                        <ul className="space-y-6">
+                          {furnitureItems.map((item) => (
+                            <li
+                              key={item.id}
+                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                                <div>
+                                  <h3 className="font-medium text-luxury-charcoal">
+                                    {item.name}
+                                  </h3>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Rent: ₹{item.unit_rent.toLocaleString()}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Category: {item.category}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Condition: {item.condition}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Quantity: {item.total_quantity} (Available:{" "}
+                                    {item.available_quantity})
+                                  </p>
+                                  {item.purchase_date && (
+                                    <p className="text-sm text-luxury-charcoal/70">
+                                      Purchase Date:{" "}
+                                      {new Date(
+                                        item.purchase_date
+                                      ).toLocaleDateString()}
+                                    </p>
+                                  )}
+                                  {item.purchase_price > 0 && (
+                                    <p className="text-sm text-luxury-charcoal/70">
+                                      Purchase Price: ₹
+                                      {item.purchase_price.toLocaleString()}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                  <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
+                                    {item.is_appliance
+                                      ? "Appliance"
+                                      : "Furniture"}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
+                          <Sofa className="h-16 w-16 text-luxury-charcoal/30 mx-auto mb-4" />
+                          <h3 className="text-xl font-medium text-luxury-charcoal mb-3">
+                            No furniture items
+                          </h3>
+                          <p className="text-luxury-charcoal/70 mb-6 max-w-md mx-auto">
+                            Add furniture items to track inventory for this
+                            property.
+                          </p>
+                          <Button
+                            onClick={() => setAddFurnitureOpen(true)}
+                            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                            aria-label="Add new furniture item"
+                          >
+                            <FilePlus className="h-4 w-4 mr-2" />
+                            Add Furniture Item
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                    {furnitureItems && furnitureItems.length > itemsPerPage && (
+                      <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
+                        <Button
+                          variant="outline"
+                          disabled={page === 1}
+                          onClick={() => setPage((p) => p - 1)}
+                          className="border-luxury-cream hover:bg-luxury-gold/20"
+                          aria-label="Previous page"
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={
+                            furnitureItems.length <= page * itemsPerPage
+                          }
+                          onClick={() => setPage((p) => p + 1)}
+                          className="border-luxury-cream hover:bg-luxury-gold/20"
+                          aria-label="Next page"
+                        >
+                          Next
+                        </Button>
+                      </CardFooter>
+                    )}
+                  </Card>
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg mt-6">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+                      <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                        <Sofa className="h-5 w-5 mr-2 text-luxury-gold" />
+                        Assigned Furniture
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      {tenantFurnitureLoading ? (
+                        <div className="space-y-4">
+                          {[...Array(3)].map((_, i) => (
+                            <div
+                              key={i}
+                              className="animate-pulse border border-luxury-cream rounded-lg p-4"
+                            >
+                              <div className="space-y-2">
+                                <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
+                                <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : tenantFurniture && tenantFurniture.length > 0 ? (
+                        <ul className="space-y-6">
+                          {tenantFurniture.map((assignment) => (
+                            <li
+                              key={assignment.id}
+                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                                <div>
+                                  <h3 className="font-medium text-luxury-charcoal">
+                                    {assignment.furniture_item.name}
+                                  </h3>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Tenant:{" "}
+                                    {assignment.tenant?.name || "Unknown"}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Quantity: {assignment.assigned_quantity}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Rent: ₹
+                                    {assignment.rent_part.toLocaleString()}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Assigned On:{" "}
+                                    {new Date(
+                                      assignment.assigned_on
+                                    ).toLocaleDateString()}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Category:{" "}
+                                    {assignment.furniture_item.category}
+                                  </p>
+                                  <p className="text-sm text-luxury-charcoal/70">
+                                    Condition:{" "}
+                                    {assignment.furniture_item.condition}
+                                  </p>
+                                </div>
+                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                  <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
+                                    {assignment.furniture_item.category}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
+                          <Sofa className="h-16 w-16 text-luxury-charcoal/30 mx-auto mb-4" />
+                          <h3 className="text-xl font-medium text-luxury-charcoal mb-3">
+                            No furniture assigned
+                          </h3>
+                          <p className="text-luxury-charcoal/70 mb-6 max-w-md mx-auto">
+                            Assign furniture items to tenants for this property.
+                          </p>
+                          <Button
+                            onClick={() => setAddTenantFurnitureOpen(true)}
+                            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                            disabled={
+                              !flat.tenants || flat.tenants.length === 0
+                            }
+                            aria-label="Assign furniture"
+                          >
+                            <Sofa className="h-4 w-4 mr-2" />
+                            Assign Furniture
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                    {tenantFurniture &&
+                      tenantFurniture.length > itemsPerPage && (
+                        <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
+                          <Button
+                            variant="outline"
+                            disabled={page === 1}
+                            onClick={() => setPage((p) => p - 1)}
+                            className="border-luxury-cream hover:bg-luxury-gold/20"
+                            aria-label="Previous page"
+                          >
+                            Previous
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={
+                              tenantFurniture.length <= page * itemsPerPage
+                            }
+                            onClick={() => setPage((p) => p + 1)}
+                            className="border-luxury-cream hover:bg-luxury-gold/20"
+                            aria-label="Next page"
+                          >
+                            Next
+                          </Button>
+                        </CardFooter>
+                      )}
+                  </Card>
+                </div>
+                <div>
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
+                      <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                        <svg
+                          className="h-5 w-5 mr-2 text-luxury-gold"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 6h16M4 12h16m-7 6h7"
+                          />
+                        </svg>
+                        Furniture Actions
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="space-y-4">
+                        <Button
+                          onClick={() => setAddFurnitureOpen(true)}
+                          className="w-full bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 justify-start"
+                          aria-label="Add new furniture item"
+                        >
+                          <FilePlus className="h-4 w-4 mr-2" />
+                          Add New Item
+                        </Button>
+                        <Button
+                          onClick={() => setAddTenantFurnitureOpen(true)}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          disabled={!flat.tenants || flat.tenants.length === 0}
+                          aria-label="Assign furniture"
+                        >
+                          <Sofa className="h-4 w-4 mr-2" />
+                          Assign Furniture
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("tenants")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage tenants"
+                        >
+                          <Users2 className="h-4 w-4 mr-2" />
+                          Manage Tenants
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("rents")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="Manage rent collection"
+                        >
+                          <Banknote className="h-4 w-4 mr-2" />
+                          Rent Collection
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("maintenance")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View maintenance requests"
+                        >
+                          <Wrench className="h-4 w-4 mr-2" />
+                          Maintenance Requests
+                        </Button>
+                        <Button
+                          onClick={() => handleTabChange("expenses")}
+                          variant="outline"
+                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
+                          aria-label="View expenses"
+                        >
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          View Expenses
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -2313,139 +2882,101 @@ const FlatDetail = () => {
                     <CardContent className="p-6">
                       {/* Expense Filters */}
                       <div className="mb-6 p-4 bg-luxury-cream/20 border border-luxury-cream rounded-lg">
-                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4">
-                          Filter Expenses
+                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4 flex items-center">
+                          <Filter className="h-4 w-4 mr-2" />
+                          Monthly Rent Collection Status
                         </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                          <div>
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
+                          <div className="w-full sm:w-48">
                             <Label
-                              htmlFor="startDate"
+                              htmlFor="year-select"
                               className="text-luxury-charcoal"
                             >
-                              Start Date
-                            </Label>
-                            <Input
-                              id="startDate"
-                              type="date"
-                              value={expenseFilter.startDate}
-                              onChange={(e) =>
-                                setExpenseFilter({
-                                  ...expenseFilter,
-                                  startDate: e.target.value,
-                                })
-                              }
-                              className="border-luxury-cream focus:ring-luxury-gold"
-                            />
-                          </div>
-                          <div>
-                            <Label
-                              htmlFor="endDate"
-                              className="text-luxury-charcoal"
-                            >
-                              End Date
-                            </Label>
-                            <Input
-                              id="endDate"
-                              type="date"
-                              value={expenseFilter.endDate}
-                              onChange={(e) =>
-                                setExpenseFilter({
-                                  ...expenseFilter,
-                                  endDate: e.target.value,
-                                })
-                              }
-                              className="border-luxury-cream focus:ring-luxury-gold"
-                            />
-                          </div>
-                          <div>
-                            <Label
-                              htmlFor="category"
-                              className="text-luxury-charcoal"
-                            >
-                              Category
+                              Select Year
                             </Label>
                             <Select
-                              value={expenseFilter.category}
-                              onValueChange={(value) =>
-                                setExpenseFilter({
-                                  ...expenseFilter,
-                                  category: value === "all" ? "" : value, // Map "all" to empty string for filtering
-                                })
-                              }
+                              value={selectedYear}
+                              onValueChange={(value) => setSelectedYear(value)}
                             >
                               <SelectTrigger
-                                id="category"
-                                className="border-luxury-cream"
+                                id="year-select"
+                                className="border-luxury-cream focus:ring-luxury-gold"
                               >
-                                <SelectValue placeholder="Select category" />
+                                <SelectValue placeholder="Select year" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="all">
-                                  All Categories
-                                </SelectItem>
-                                <SelectItem value="maintenance">
-                                  Maintenance
-                                </SelectItem>
-                                <SelectItem value="utilities">
-                                  Utilities
-                                </SelectItem>
-                                <SelectItem value="repairs">Repairs</SelectItem>
-                                <SelectItem value="taxes">Taxes</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
+                                {[...Array(10)].map((_, i) => {
+                                  const year = currentYear - 5 + i;
+                                  return (
+                                    <SelectItem
+                                      key={year}
+                                      value={year.toString()}
+                                    >
+                                      {year}
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           </div>
-                          <div>
-                            <Label
-                              htmlFor="minAmount"
-                              className="text-luxury-charcoal"
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setMonthlyStatusFilters(
+                                generateMonthlyFilters(Number(selectedYear))
+                              );
+                              setPage(1);
+                            }}
+                            className="border-luxury-cream hover:bg-luxury-gold/20"
+                            aria-label="Reset filters"
+                          >
+                            Reset Filters
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                          {monthlyStatusFilters.map((monthStatus, index) => (
+                            <div
+                              key={monthStatus.month}
+                              className="flex flex-col"
                             >
-                              Min Amount
-                            </Label>
-                            <Input
-                              id="minAmount"
-                              type="number"
-                              value={expenseFilter.minAmount}
-                              onChange={(e) =>
-                                setExpenseFilter({
-                                  ...expenseFilter,
-                                  minAmount: e.target.value,
-                                })
-                              }
-                              placeholder="Min amount"
-                              className="border-luxury-cream focus:ring-luxury-gold"
-                            />
-                          </div>
-                          <div>
-                            <Label
-                              htmlFor="maxAmount"
-                              className="text-luxury-charcoal"
-                            >
-                              Max Amount
-                            </Label>
-                            <Input
-                              id="maxAmount"
-                              type="number"
-                              value={expenseFilter.maxAmount}
-                              onChange={(e) =>
-                                setExpenseFilter({
-                                  ...expenseFilter,
-                                  maxAmount: e.target.value,
-                                })
-                              }
-                              placeholder="Max amount"
-                              className="border-luxury-cream focus:ring-luxury-gold"
-                            />
-                          </div>
-                          <div className="flex items-end">
-                            <Button
-                              onClick={() => refetchExpenses()}
-                              className="w-full bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                              aria-label="Apply filters"
-                            >
-                              Apply Filters
-                            </Button>
-                          </div>
+                              <Label
+                                htmlFor={`month-status-${index}`}
+                                className="text-luxury-charcoal text-sm mb-1"
+                              >
+                                {monthStatus.month.split(" ")[0]}
+                              </Label>
+                              <Select
+                                value={monthStatus.status}
+                                onValueChange={(value) => {
+                                  const updatedFilters = [
+                                    ...monthlyStatusFilters,
+                                  ];
+                                  updatedFilters[index] = {
+                                    ...monthStatus,
+                                    status: value,
+                                  };
+                                  setMonthlyStatusFilters(updatedFilters);
+                                  setPage(1);
+                                }}
+                              >
+                                <SelectTrigger
+                                  id={`month-status-${index}`}
+                                  className="border-luxury-cream focus:ring-luxury-gold h-9 text-sm"
+                                >
+                                  <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All</SelectItem>
+                                  <SelectItem value="received">
+                                    Received
+                                  </SelectItem>
+                                  <SelectItem value="pending">
+                                    Pending
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
@@ -2615,8 +3146,279 @@ const FlatDetail = () => {
           </motion.div>
         </AnimatePresence>
       </Tabs>
-
       {/* Responsive Dialogs */}
+      // Add Furniture Dialogs
+      <Dialog open={addFurnitureOpen} onOpenChange={setAddFurnitureOpen}>
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Add New Furniture Item
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addFurnitureMutation.mutate(furnitureForm);
+            }}
+            className="space-y-6"
+          >
+            <div>
+              <Label htmlFor="name" className="text-luxury-charcoal">
+                Name
+              </Label>
+              <Select
+                value={furnitureForm.name}
+                onValueChange={(value) =>
+                  setFurnitureForm({ ...furnitureForm, name: value })
+                }
+                required
+              >
+                <SelectTrigger
+                  id="name"
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                >
+                  <SelectValue placeholder="Select furniture item" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Bed">Bed</SelectItem>
+                  <SelectItem value="Fridge">Fridge</SelectItem>
+                  <SelectItem value="Sofa">Sofa</SelectItem>
+                  <SelectItem value="Table">Table</SelectItem>
+                  <SelectItem value="Chair">Chair</SelectItem>
+                  <SelectItem value="Wardrobe">Wardrobe</SelectItem>
+                  <SelectItem value="TV">TV</SelectItem>
+                  <SelectItem value="AC">AC</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="unit_rent" className="text-luxury-charcoal">
+                Monthly Rent (₹)
+              </Label>
+              <Input
+                id="unit_rent"
+                type="number"
+                value={furnitureForm.unit_rent}
+                onChange={(e) =>
+                  setFurnitureForm({
+                    ...furnitureForm,
+                    unit_rent: e.target.value,
+                  })
+                }
+                required
+                className="border-luxury-cream focus:ring-luxury-gold"
+                placeholder="Enter monthly rent"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddFurnitureOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={addFurnitureMutation.isPending}
+              >
+                {addFurnitureMutation.isPending ? "Adding..." : "Add Item"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={addTenantFurnitureOpen}
+        onOpenChange={setAddTenantFurnitureOpen}
+      >
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Assign Furniture to Tenant
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              assignFurnitureMutation.mutate(tenantFurnitureForm);
+            }}
+            className="space-y-6"
+          >
+            <div>
+              <Label
+                htmlFor="furniture_item_id"
+                className="text-luxury-charcoal"
+              >
+                Furniture Item
+              </Label>
+              <Select
+                value={tenantFurnitureForm.furniture_item_id}
+                onValueChange={(value) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    furniture_item_id: value,
+                  })
+                }
+                required
+              >
+                <SelectTrigger
+                  id="furniture_item_id"
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                >
+                  <SelectValue placeholder="Select furniture item" />
+                </SelectTrigger>
+                <SelectContent>
+                  {furnitureItems
+                    ?.filter((item) => item.available_quantity > 0)
+                    .map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name} (Available: {item.available_quantity})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="category" className="text-luxury-charcoal">
+                Category
+              </Label>
+              <Select
+                value={tenantFurnitureForm.category}
+                onValueChange={(value) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    category: value,
+                  })
+                }
+                required
+              >
+                <SelectTrigger
+                  id="category"
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                >
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Furniture">Furniture</SelectItem>
+                  <SelectItem value="Appliance">Appliance</SelectItem>
+                  <SelectItem value="Electronics">Electronics</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label
+                htmlFor="assigned_quantity"
+                className="text-luxury-charcoal"
+              >
+                Quantity
+              </Label>
+              <Input
+                id="assigned_quantity"
+                type="number"
+                value={tenantFurnitureForm.assigned_quantity}
+                onChange={(e) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    assigned_quantity: e.target.value,
+                  })
+                }
+                required
+                min="1"
+                className="border-luxury-cream focus:ring-luxury-gold"
+                placeholder="Enter quantity"
+              />
+            </div>
+            <div>
+              <Label htmlFor="purchase_price" className="text-luxury-charcoal">
+                Purchase Price (₹)
+              </Label>
+              <Input
+                id="purchase_price"
+                type="number"
+                value={tenantFurnitureForm.purchase_price}
+                onChange={(e) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    purchase_price: e.target.value,
+                  })
+                }
+                required
+                className="border-luxury-cream focus:ring-luxury-gold"
+                placeholder="Enter purchase price"
+              />
+            </div>
+            <div>
+              <Label htmlFor="purchase_date" className="text-luxury-charcoal">
+                Purchase Date
+              </Label>
+              <Input
+                id="purchase_date"
+                type="date"
+                value={tenantFurnitureForm.purchase_date}
+                onChange={(e) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    purchase_date: e.target.value,
+                  })
+                }
+                required
+                className="border-luxury-cream focus:ring-luxury-gold"
+              />
+            </div>
+            <div>
+              <Label htmlFor="condition" className="text-luxury-charcoal">
+                Condition
+              </Label>
+              <Select
+                value={tenantFurnitureForm.condition}
+                onValueChange={(value) =>
+                  setTenantFurnitureForm({
+                    ...tenantFurnitureForm,
+                    condition: value,
+                  })
+                }
+                required
+              >
+                <SelectTrigger
+                  id="condition"
+                  className="border-luxury-cream focus:ring-luxury-gold"
+                >
+                  <SelectValue placeholder="Select condition" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">New</SelectItem>
+                  <SelectItem value="good">Good</SelectItem>
+                  <SelectItem value="fair">Fair</SelectItem>
+                  <SelectItem value="poor">Poor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAddTenantFurnitureOpen(false)}
+                className="border-luxury-cream hover:bg-luxury-cream/20"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                disabled={assignFurnitureMutation.isPending}
+              >
+                {assignFurnitureMutation.isPending
+                  ? "Assigning..."
+                  : "Assign Furniture"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -2639,7 +3441,6 @@ const FlatDetail = () => {
           />
         </DialogContent>
       </Dialog>
-
       <Dialog open={addTenantOpen} onOpenChange={setAddTenantOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -2734,7 +3535,6 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
-
       <Dialog open={assignTenantOpen} onOpenChange={setAssignTenantOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -2797,7 +3597,6 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
-
       <Dialog open={uploadDocOpen} onOpenChange={setUploadDocOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -2889,7 +3688,6 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
-
       <Dialog open={deleteDocOpen} onOpenChange={setDeleteDocOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -2925,7 +3723,6 @@ const FlatDetail = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <Dialog
         open={createMaintenanceOpen}
         onOpenChange={setCreateMaintenanceOpen}
@@ -3052,7 +3849,6 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
-
       <Dialog
         open={sendPaymentLinksOpen}
         onOpenChange={(open) => {
@@ -3201,7 +3997,6 @@ const FlatDetail = () => {
           )}
         </DialogContent>
       </Dialog>
-
       <Dialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
           <DialogHeader>
@@ -3236,7 +4031,6 @@ const FlatDetail = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <Dialog open={addExpenseOpen} onOpenChange={setAddExpenseOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>
