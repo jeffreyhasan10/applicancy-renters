@@ -662,7 +662,7 @@ export default function Rent() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 w-full overflow-x-hidden">
       <PageHeader
         title="Rent Management"
         description="Track and manage rent payments with ease"
@@ -673,59 +673,49 @@ export default function Rent() {
 
       {/* Stats Section */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <Card className="shadow-lg bg-gradient-to-br from-white to-gray-100 hover:shadow-xl transition-all duration-300">
+        <Card className="shadow-luxury bg-gradient-to-br from-luxury-softwhite to-luxury-pearl hover:shadow-card-hover transition-all duration-300">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-semibold text-gray-800">Total Collection</CardTitle>
-            <CardDescription className="text-gray-600">Overview of collected rent</CardDescription>
+            <CardTitle className="text-lg font-semibold text-luxury-charcoal">Total Collection</CardTitle>
+            <CardDescription className="text-luxury-slate">Overview of collected rent</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center">
-              <IndianRupee className="h-6 w-6 text-green-600 mr-3" />
-              <span className="text-2xl font-bold text-gray-900">
+              <IndianRupee className="h-6 w-6 text-success mr-3" />
+              <span className="text-2xl font-bold text-luxury-charcoal">
                 ₹{calculateStats.totalCollection.toLocaleString()}
               </span>
-              <span className="ml-2 text-sm plea text-gray-500">
+              <span className="ml-2 text-sm text-luxury-slate">
                 of ₹{calculateStats.targetCollection.toLocaleString()}
               </span>
             </div>
-            <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="mt-3 h-2 bg-luxury-pearl rounded-full overflow-hidden">
               <div
-                className="bg-green-500 h-full rounded-full transition-all duration-500"
+                className="bg-success h-full rounded-full transition-all duration-500"
                 style={{
-                  width: calculateStats.targetCollection > 0
-                    ? `${(calculateStats.totalCollection / calculateStats.targetCollection) * 100}%`
-                    : "0%",
+                  width: `${(calculateStats.totalCollection / calculateStats.targetCollection) * 100}%`,
                 }}
               ></div>
-            </div>
-            <div className="flex justify-between mt-2 text-xs text-gray-500">
-              <span>{calculateStats.paidCount}/{calculateStats.paidCount + calculateStats.pendingCount} Payments</span>
-              <span>
-                {calculateStats.targetCollection > 0
-                  ? `${((calculateStats.totalCollection / calculateStats.targetCollection) * 100).toFixed(1)}%`
-                  : "0%"}
-              </span>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="shadow-lg bg-gradient-to-br from-white to-gray-100 hover:shadow-xl transition-all duration-300">
+        <Card className="shadow-luxury bg-gradient-to-br from-luxury-softwhite to-luxury-pearl hover:shadow-card-hover transition-all duration-300">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-semibold text-gray-800">Pending Collection</CardTitle>
-            <CardDescription className="text-gray-600">Outstanding rent payments</CardDescription>
+            <CardTitle className="text-lg font-semibold text-luxury-charcoal">Pending Collection</CardTitle>
+            <CardDescription className="text-luxury-slate">Outstanding rent payments</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center">
-              <IndianRupee className="h-6 w-6 text-amber-600 mr-3" />
-              <span className="text-2xl font-bold text-gray-900">
+              <IndianRupee className="h-6 w-6 text-warning mr-3" />
+              <span className="text-2xl font-bold text-luxury-charcoal">
                 ₹{calculateStats.pendingCollection.toLocaleString()}
               </span>
-              <span className="ml-2 text-sm text-gray-500">{calculateStats.pendingCount} tenants</span>
+              <span className="ml-2 text-sm text-luxury-slate">{calculateStats.pendingCount} tenants</span>
             </div>
             <Button
               variant="outline"
               size="sm"
-              className="mt-4 w-full transition-all duration-200 hover:bg-amber-50 border-amber-300 text-amber-700"
+              className="mt-4 w-full transition-all duration-200 hover:bg-warning/10 border-warning text-warning hover:text-warning focus:ring-2 focus:ring-warning/20"
               onClick={bulkSendReminders}
               disabled={
                 selectedRents.length === 0 ||
@@ -739,16 +729,16 @@ export default function Rent() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-lg bg-gradient-to-br from-white to-gray-100 hover:shadow-xl transition-all duration-300">
+        <Card className="shadow-luxury bg-gradient-to-br from-luxury-softwhite to-luxury-pearl hover:shadow-card-hover transition-all duration-300">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-semibold text-gray-800">Export Data</CardTitle>
-            <CardDescription className="text-gray-600">Download rent data</CardDescription>
+            <CardTitle className="text-lg font-semibold text-luxury-charcoal">Export Data</CardTitle>
+            <CardDescription className="text-luxury-slate">Download rent data</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button
               variant="outline"
               size="sm"
-              className="w-full transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700"
+              className="w-full transition-all duration-200 hover:bg-luxury-gold/10 border-luxury-gold text-luxury-charcoal hover:text-luxury-charcoal focus:ring-2 focus:ring-luxury-gold/20"
               onClick={() => exportData("xlsx")}
               aria-label="Export as Excel"
             >
@@ -758,7 +748,7 @@ export default function Rent() {
             <Button
               variant="outline"
               size="sm"
-              className="w-full transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700"
+              className="w-full transition-all duration-200 hover:bg-luxury-gold/10 border-luxury-gold text-luxury-charcoal hover:text-luxury-charcoal focus:ring-2 focus:ring-luxury-gold/20"
               onClick={() => exportData("csv")}
               aria-label="Export as CSV"
             >
@@ -770,13 +760,13 @@ export default function Rent() {
       </div>
 
       {/* Transactions Table */}
-      <Card className="shadow-lg bg-white border border-gray-100">
+      <Card className="shadow-luxury bg-white border border-luxury-pearl">
         <CardHeader className="flex flex-row justify-between items-center">
-          <CardTitle className="text-xl font-semibold text-gray-900">Rent Transactions</CardTitle>
+          <CardTitle className="text-xl font-semibold text-luxury-charcoal">Rent Transactions</CardTitle>
           <Button
             variant="outline"
             size="sm"
-            className="transition-all duration-200 hover:bg-indigo-50 border-indigo-300 text-indigo-700"
+            className="transition-all duration-200 hover:bg-luxury-gold/10 border-luxury-gold text-luxury-charcoal"
             onClick={() => queryClient.invalidateQueries({ queryKey: ["rents"] })}
             aria-label="Refresh data"
           >

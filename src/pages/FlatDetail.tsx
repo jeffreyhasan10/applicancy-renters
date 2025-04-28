@@ -55,6 +55,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import FlatForm from "@/components/forms/FlatForm";
 import WhatsAppIntegration from "@/components/integrations/WhatsAppIntegration";
+import FurnitureManager from "@/components/furniture/FurnitureManager";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -1449,265 +1450,14 @@ const FlatDetail = () => {
                 <div className="lg:col-span-2">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                          <Sofa className="h-5 w-5 mr-2 text-luxury-gold" />
-                          Furniture Inventory
-                        </CardTitle>
-                        <div className="flex space-x-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setAddFurnitureOpen(true)}
-                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                            aria-label="Add new furniture item"
-                          >
-                            <FilePlus className="h-4 w-4 mr-1" /> New Item
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setAddTenantFurnitureOpen(true)}
-                            className="border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
-                            aria-label="Assign furniture"
-                            disabled={
-                              !flat.tenants || flat.tenants.length === 0
-                            }
-                          >
-                            <Sofa className="h-4 w-4 mr-1" /> Assign
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      {furnitureLoading ? (
-                        <div className="space-y-4">
-                          {[...Array(3)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="animate-pulse border border-luxury-cream rounded-lg p-4"
-                            >
-                              <div className="space-y-2">
-                                <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
-                                <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : furnitureItems && furnitureItems.length > 0 ? (
-                        <ul className="space-y-6">
-                          {furnitureItems.map((item) => (
-                            <li
-                              key={item.id}
-                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
-                            >
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                <div>
-                                  <h3 className="font-medium text-luxury-charcoal">
-                                    {item.name}
-                                  </h3>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Rent: ₹{item.unit_rent.toLocaleString()}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Category: {item.category}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Condition: {item.condition}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Quantity: {item.total_quantity} (Available:{" "}
-                                    {item.available_quantity})
-                                  </p>
-                                  {item.purchase_date && (
-                                    <p className="text-sm text-luxury-charcoal/70">
-                                      Purchase Date:{" "}
-                                      {new Date(
-                                        item.purchase_date
-                                      ).toLocaleDateString()}
-                                    </p>
-                                  )}
-                                  {item.purchase_price > 0 && (
-                                    <p className="text-sm text-luxury-charcoal/70">
-                                      Purchase Price: ₹
-                                      {item.purchase_price.toLocaleString()}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
-                                  <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
-                                    {item.is_appliance
-                                      ? "Appliance"
-                                      : "Furniture"}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
-                          <Sofa className="h-16 w-16 text-luxury-charcoal/30 mx-auto mb-4" />
-                          <h3 className="text-xl font-medium text-luxury-charcoal mb-3">
-                            No furniture items
-                          </h3>
-                          <p className="text-luxury-charcoal/70 mb-6 max-w-md mx-auto">
-                            Add furniture items to track inventory for this
-                            property.
-                          </p>
-                          <Button
-                            onClick={() => setAddFurnitureOpen(true)}
-                            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                            aria-label="Add new furniture item"
-                          >
-                            <FilePlus className="h-4 w-4 mr-2" />
-                            Add Furniture Item
-                          </Button>
-                        </div>
-                      )}
-                    </CardContent>
-                    {furnitureItems && furnitureItems.length > itemsPerPage && (
-                      <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
-                        <Button
-                          variant="outline"
-                          disabled={page === 1}
-                          onClick={() => setPage((p) => p - 1)}
-                          className="border-luxury-cream hover:bg-luxury-gold/20"
-                          aria-label="Previous page"
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          disabled={
-                            furnitureItems.length <= page * itemsPerPage
-                          }
-                          onClick={() => setPage((p) => p + 1)}
-                          className="border-luxury-cream hover:bg-luxury-gold/20"
-                          aria-label="Next page"
-                        >
-                          Next
-                        </Button>
-                      </CardFooter>
-                    )}
-                  </Card>
-                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg mt-6">
-                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
                         <Sofa className="h-5 w-5 mr-2 text-luxury-gold" />
-                        Assigned Furniture
+                        Furniture Management
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
-                      {tenantFurnitureLoading ? (
-                        <div className="space-y-4">
-                          {[...Array(3)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="animate-pulse border border-luxury-cream rounded-lg p-4"
-                            >
-                              <div className="space-y-2">
-                                <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
-                                <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : tenantFurniture && tenantFurniture.length > 0 ? (
-                        <ul className="space-y-6">
-                          {tenantFurniture.map((assignment) => (
-                            <li
-                              key={assignment.id}
-                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
-                            >
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                <div>
-                                  <h3 className="font-medium text-luxury-charcoal">
-                                    {assignment.furniture_item.name}
-                                  </h3>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Tenant:{" "}
-                                    {assignment.tenant?.name || "Unknown"}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Quantity: {assignment.assigned_quantity}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Rent: ₹
-                                    {assignment.rent_part.toLocaleString()}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Assigned On:{" "}
-                                    {new Date(
-                                      assignment.assigned_on
-                                    ).toLocaleDateString()}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Category:{" "}
-                                    {assignment.furniture_item.category}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Condition:{" "}
-                                    {assignment.furniture_item.condition}
-                                  </p>
-                                </div>
-                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
-                                  <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
-                                    {assignment.furniture_item.category}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
-                          <Sofa className="h-16 w-16 text-luxury-charcoal/30 mx-auto mb-4" />
-                          <h3 className="text-xl font-medium text-luxury-charcoal mb-3">
-                            No furniture assigned
-                          </h3>
-                          <p className="text-luxury-charcoal/70 mb-6 max-w-md mx-auto">
-                            Assign furniture items to tenants for this property.
-                          </p>
-                          <Button
-                            onClick={() => setAddTenantFurnitureOpen(true)}
-                            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                            disabled={
-                              !flat.tenants || flat.tenants.length === 0
-                            }
-                            aria-label="Assign furniture"
-                          >
-                            <Sofa className="h-4 w-4 mr-2" />
-                            Assign Furniture
-                          </Button>
-                        </div>
-                      )}
+                      <FurnitureManager flatId={id} />
                     </CardContent>
-                    {tenantFurniture &&
-                      tenantFurniture.length > itemsPerPage && (
-                        <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
-                          <Button
-                            variant="outline"
-                            disabled={page === 1}
-                            onClick={() => setPage((p) => p - 1)}
-                            className="border-luxury-cream hover:bg-luxury-gold/20"
-                            aria-label="Previous page"
-                          >
-                            Previous
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={
-                              tenantFurniture.length <= page * itemsPerPage
-                            }
-                            onClick={() => setPage((p) => p + 1)}
-                            className="border-luxury-cream hover:bg-luxury-gold/20"
-                            aria-label="Next page"
-                          >
-                            Next
-                          </Button>
-                        </CardFooter>
-                      )}
                   </Card>
                 </div>
                 <div>
@@ -1732,24 +1482,6 @@ const FlatDetail = () => {
                     </CardHeader>
                     <CardContent className="p-6">
                       <div className="space-y-4">
-                        <Button
-                          onClick={() => setAddFurnitureOpen(true)}
-                          className="w-full bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 justify-start"
-                          aria-label="Add new furniture item"
-                        >
-                          <FilePlus className="h-4 w-4 mr-2" />
-                          Add New Item
-                        </Button>
-                        <Button
-                          onClick={() => setAddTenantFurnitureOpen(true)}
-                          variant="outline"
-                          className="w-full border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal justify-start"
-                          disabled={!flat.tenants || flat.tenants.length === 0}
-                          aria-label="Assign furniture"
-                        >
-                          <Sofa className="h-4 w-4 mr-2" />
-                          Assign Furniture
-                        </Button>
                         <Button
                           onClick={() => handleTabChange("tenants")}
                           variant="outline"
@@ -2404,6 +2136,107 @@ const FlatDetail = () => {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-6">
+                      {/* Monthly Rent Collection Status */}
+                      <div className="mb-6 p-4 bg-luxury-cream/20 border border-luxury-cream rounded-lg">
+                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4 flex items-center">
+                          <Filter className="h-4 w-4 mr-2" />
+                          Monthly Rent Collection Status
+                        </h3>
+                        <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
+                          <div className="w-full sm:w-48">
+                            <Label
+                              htmlFor="year-select"
+                              className="text-luxury-charcoal"
+                            >
+                              Select Year
+                            </Label>
+                            <Select
+                              value={selectedYear}
+                              onValueChange={(value) => setSelectedYear(value)}
+                            >
+                              <SelectTrigger
+                                id="year-select"
+                                className="border-luxury-cream focus:ring-luxury-gold"
+                              >
+                                <SelectValue placeholder="Select year" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {[...Array(10)].map((_, i) => {
+                                  const year = currentYear - 5 + i;
+                                  return (
+                                    <SelectItem
+                                      key={year}
+                                      value={year.toString()}
+                                    >
+                                      {year}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setMonthlyStatusFilters(
+                                generateMonthlyFilters(Number(selectedYear))
+                              );
+                              setPage(1);
+                            }}
+                            className="border-luxury-cream hover:bg-luxury-gold/20"
+                            aria-label="Reset filters"
+                          >
+                            Reset Filters
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                          {monthlyStatusFilters.map((monthStatus, index) => (
+                            <div
+                              key={monthStatus.month}
+                              className="flex flex-col"
+                            >
+                              <Label
+                                htmlFor={`month-status-${index}`}
+                                className="text-luxury-charcoal text-sm mb-1"
+                              >
+                                {monthStatus.month.split(" ")[0]}
+                              </Label>
+                              <Select
+                                value={monthStatus.status}
+                                onValueChange={(value) => {
+                                  const updatedFilters = [
+                                    ...monthlyStatusFilters,
+                                  ];
+                                  updatedFilters[index] = {
+                                    ...monthStatus,
+                                    status: value,
+                                  };
+                                  setMonthlyStatusFilters(updatedFilters);
+                                  setPage(1);
+                                }}
+                              >
+                                <SelectTrigger
+                                  id={`month-status-${index}`}
+                                  className="border-luxury-cream focus:ring-luxury-gold h-9 text-sm"
+                                >
+                                  <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="all">All</SelectItem>
+                                  <SelectItem value="received">
+                                    Received
+                                  </SelectItem>
+                                  <SelectItem value="pending">
+                                    Pending
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Existing rents list */}
                       {rentsLoading ? (
                         <div className="space-y-4">
                           {[...Array(3)].map((_, i) => (
@@ -2880,106 +2713,6 @@ const FlatDetail = () => {
                       </div>
                     </CardHeader>
                     <CardContent className="p-6">
-                      {/* Expense Filters */}
-                      <div className="mb-6 p-4 bg-luxury-cream/20 border border-luxury-cream rounded-lg">
-                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4 flex items-center">
-                          <Filter className="h-4 w-4 mr-2" />
-                          Monthly Rent Collection Status
-                        </h3>
-                        <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
-                          <div className="w-full sm:w-48">
-                            <Label
-                              htmlFor="year-select"
-                              className="text-luxury-charcoal"
-                            >
-                              Select Year
-                            </Label>
-                            <Select
-                              value={selectedYear}
-                              onValueChange={(value) => setSelectedYear(value)}
-                            >
-                              <SelectTrigger
-                                id="year-select"
-                                className="border-luxury-cream focus:ring-luxury-gold"
-                              >
-                                <SelectValue placeholder="Select year" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {[...Array(10)].map((_, i) => {
-                                  const year = currentYear - 5 + i;
-                                  return (
-                                    <SelectItem
-                                      key={year}
-                                      value={year.toString()}
-                                    >
-                                      {year}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setMonthlyStatusFilters(
-                                generateMonthlyFilters(Number(selectedYear))
-                              );
-                              setPage(1);
-                            }}
-                            className="border-luxury-cream hover:bg-luxury-gold/20"
-                            aria-label="Reset filters"
-                          >
-                            Reset Filters
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                          {monthlyStatusFilters.map((monthStatus, index) => (
-                            <div
-                              key={monthStatus.month}
-                              className="flex flex-col"
-                            >
-                              <Label
-                                htmlFor={`month-status-${index}`}
-                                className="text-luxury-charcoal text-sm mb-1"
-                              >
-                                {monthStatus.month.split(" ")[0]}
-                              </Label>
-                              <Select
-                                value={monthStatus.status}
-                                onValueChange={(value) => {
-                                  const updatedFilters = [
-                                    ...monthlyStatusFilters,
-                                  ];
-                                  updatedFilters[index] = {
-                                    ...monthStatus,
-                                    status: value,
-                                  };
-                                  setMonthlyStatusFilters(updatedFilters);
-                                  setPage(1);
-                                }}
-                              >
-                                <SelectTrigger
-                                  id={`month-status-${index}`}
-                                  className="border-luxury-cream focus:ring-luxury-gold h-9 text-sm"
-                                >
-                                  <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All</SelectItem>
-                                  <SelectItem value="received">
-                                    Received
-                                  </SelectItem>
-                                  <SelectItem value="pending">
-                                    Pending
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
                       {expensesLoading ? (
                         <div className="space-y-4">
                           {[...Array(3)].map((_, i) => (
@@ -3147,7 +2880,6 @@ const FlatDetail = () => {
         </AnimatePresence>
       </Tabs>
       {/* Responsive Dialogs */}
-      // Add Furniture Dialogs
       <Dialog open={addFurnitureOpen} onOpenChange={setAddFurnitureOpen}>
         <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
           <DialogHeader>

@@ -6,7 +6,6 @@ import {
   PackagePlus,
   Trash2,
   Edit,
-  Unlink,
   Filter,
   X,
 } from "lucide-react";
@@ -67,10 +66,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import InventoryForm from "../components/forms/InventoryForm";
-import ApplianceRentBreakdown from "../components/forms/ApplianceRentBreakdown";
 
-// Define types
 interface InventoryItem {
   id: string;
   name: string;
@@ -78,108 +74,51 @@ interface InventoryItem {
   condition: "new" | "used" | "damaged";
   location: string;
   flat_id: string | null;
-  flat: string | null;
-  assigned: boolean;
-  purchaseDate: string;
-  purchasePrice: number;
+  flat_name: string | null;
+  purchase_date: string;
+  purchase_price: number;
   unit_rent: number;
   total_quantity: number;
   available_quantity: number;
-  calendarEvent?: {
-    startDate: string | null;
-    endDate: string | null;
-  };
+  calendar_event_id?: string;
+  event_start_date?: string;
+  event_end_date?: string;
 }
 
-interface Flat {
-  id: string;
-  name: string;
-}
-
-interface Tenant {
-  id: string;
-  name: string;
-  flat_id: string;
-}
-
-interface TenantFurniture {
-  id: string;
-  furniture_item_id: string;
-  name: string;
-  category: string;
-  assigned_quantity: number;
-  condition: string;
-  location: string;
-  tenant: string;
-  rent_part: number;
-  calendarEvent?: {
-    startDate: string | null;
-    endDate: string | null;
-  };
-}
-
-interface CalendarEvent {
-  id: string;
-  related_table: string;
-  related_id: string;
-  start_date: string | null;
-  end_date: string | null;
-}
-
-// AssignForm Component
-interface AssignFormProps {
+interface InventoryFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  item: InventoryItem;
-  onAssign: () => void;
+  onItemAdded: () => void;
+  initialItem?: InventoryItem;
+  isEditMode: boolean;
 }
 
-function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
+function InventoryForm({
+  open,
+  onOpenChange,
+  onItemAdded,
+  initialItem,
+  isEditMode,
+}: InventoryFormProps) {
   const { toast } = useToast();
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [loadingTenants, setLoadingTenants] = useState(false);
   const [formData, setFormData] = useState({
-    tenant_id: "",
-    quantity: 1,
-    rent_part: item.unit_rent,
+    name: initialItem?.name || "",
+    category: initialItem?.category || "Furniture",
+    condition: initialItem?.condition || "new",
+    purchase_date: initialItem?.purchase_date || format(new Date(), "yyyy-MM-dd"),
+    purchase_price: initialItem?.purchase_price || 0,
+    unit_rent: initialItem?.unit_rent || 0,
+    total_quantity: initialItem?.total_quantity || 1,
+    is_appliance: initialItem?.category === "Appliance" || false,
   });
-  const [errors, setErrors] = useState<{ tenant_id?: string; quantity?: string; rent_part?: string }>({});
-
-  useEffect(() => {
-    const fetchTenants = async () => {
-      setLoadingTenants(true);
-      try {
-        const { data, error } = await supabase
-          .from("tenants")
-          .select("id, name, flat_id")
-          .eq("flat_id", item.flat_id)
-          .eq("is_active", true)
-          .order("name", { ascending: true });
-
-        if (error) throw error;
-        setTenants(data || []);
-      } catch (error: any) {
-        toast({
-          title: "Error fetching tenants",
-          description: error.message,
-          variant: "destructive",
-        });
-      } finally {
-        setLoadingTenants(false);
-      }
-    };
-
-    if (item.flat_id) fetchTenants();
-  }, [item.flat_id, toast]);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const validateForm = () => {
-    const newErrors: { tenant_id?: string; quantity?: string; rent_part?: string } = {};
-    if (!formData.tenant_id) newErrors.tenant_id = "Please select a tenant";
-    if (formData.quantity < 1) newErrors.quantity = "Quantity must be at least 1";
-    if (formData.quantity > item.available_quantity)
-      newErrors.quantity = `Only ${item.available_quantity} items available`;
-    if (formData.rent_part === undefined || formData.rent_part < 0)
-      newErrors.rent_part = "Rent value must be non-negative";
+    const newErrors: { [key: string]: string } = {};
+    if (!formData.name) newErrors.name = "Name is required";
+    if (formData.total_quantity < 1) newErrors.total_quantity = "Quantity must be at least 1";
+    if (formData.purchase_price < 0) newErrors.purchase_price = "Price must be non-negative";
+    if (formData.unit_rent < 0) newErrors.unit_rent = "Rent must be non-negative";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -189,31 +128,52 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
     if (!validateForm()) return;
 
     try {
-      const { error } = await supabase.from("tenant_furniture").insert({
-        tenant_id: formData.tenant_id,
-        furniture_item_id: item.id,
-        assigned_quantity: formData.quantity,
-        rent_part: formData.rent_part,
-      });
+      if (isEditMode && initialItem) {
+        const { error } = await supabase
+          .from("furniture_items")
+          .update({
+            name: formData.name,
+            category: formData.is_appliance ? "Appliance" : "Furniture",
+            condition: formData.condition,
+            purchase_date: formData.purchase_date,
+            purchase_price: formData.purchase_price,
+            unit_rent: formData.unit_rent,
+            total_quantity: formData.total_quantity,
+            available_quantity: formData.total_quantity, // Reset available_quantity on edit
+            is_appliance: formData.is_appliance,
+          })
+          .eq("id", initialItem.id);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast({
+          title: "Item updated",
+          description: `${formData.name} has been updated`,
+        });
+      } else {
+        const { error } = await supabase.from("furniture_items").insert({
+          name: formData.name,
+          category: formData.is_appliance ? "Appliance" : "Furniture",
+          condition: formData.condition,
+          purchase_date: formData.purchase_date,
+          purchase_price: formData.purchase_price,
+          unit_rent: formData.unit_rent,
+          total_quantity: formData.total_quantity,
+          available_quantity: formData.total_quantity,
+          is_appliance: formData.is_appliance,
+        });
 
-      // Update available quantity
-      await supabase
-        .from("furniture_items")
-        .update({ available_quantity: item.available_quantity - formData.quantity })
-        .eq("id", item.id);
+        if (error) throw error;
+        toast({
+          title: "Item added",
+          description: `${formData.name} has been added to inventory`,
+        });
+      }
 
-      toast({
-        title: "Item assigned",
-        description: `${formData.quantity} ${item.name}(s) assigned to tenant successfully`,
-      });
-
+      onItemAdded();
       onOpenChange(false);
-      onAssign();
     } catch (error: any) {
       toast({
-        title: "Error assigning item",
+        title: `Error ${isEditMode ? "updating" : "adding"} item`,
         description: error.message,
         variant: "destructive",
       });
@@ -222,99 +182,111 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] bg-white rounded-lg shadow-xl">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto bg-white">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-900">
-            Assign {item.name}
+            {isEditMode ? "Edit Inventory Item" : "Add Inventory Item"}
           </DialogTitle>
           <DialogDescription className="text-gray-600">
-            Assign {item.name} to a tenant. Available: {item.available_quantity}.
+            {isEditMode ? "Update the details of the inventory item." : "Add a new item to your inventory."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="tenant_id">Tenant</Label>
+            <Label htmlFor="name" className="text-gray-700 font-medium">Name</Label>
+            <Input
+              id="name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className={errors.name ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
+            />
+            {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="category" className="text-gray-700 font-medium">Type</Label>
             <Select
-              value={formData.tenant_id}
-              onValueChange={(value) =>
-                setFormData((prev) => ({ ...prev, tenant_id: value }))
-              }
-              disabled={loadingTenants || !item.flat_id}
-              required
+              value={formData.is_appliance ? "Appliance" : "Furniture"}
+              onValueChange={(value) => setFormData({ ...formData, is_appliance: value === "Appliance" })}
             >
-              <SelectTrigger id="tenant_id" className={errors.tenant_id ? "border-red-500" : ""}>
-                <SelectValue
-                  placeholder={
-                    loadingTenants
-                      ? "Loading tenants..."
-                      : tenants.length === 0
-                      ? "No tenants available"
-                      : "Select tenant"
-                  }
-                />
+              <SelectTrigger className="border-gray-200 focus:ring-blue-500">
+                <SelectValue placeholder="Select type" />
               </SelectTrigger>
               <SelectContent>
-                {tenants.map((tenant) => (
-                  <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.name}
-                  </SelectItem>
-                ))}
+                <SelectItem value="Furniture">Furniture</SelectItem>
+                <SelectItem value="Appliance">Appliance</SelectItem>
               </SelectContent>
             </Select>
-            {errors.tenant_id && <p className="text-sm text-red-500">{errors.tenant_id}</p>}
           </div>
-
           <div className="space-y-2">
-            <Label htmlFor="quantity">Quantity</Label>
+            <Label htmlFor="condition" className="text-gray-700 font-medium">Condition</Label>
+            <Select
+              value={formData.condition}
+              onValueChange={(value) => setFormData({ ...formData, condition: value as "new" | "used" | "damaged" })}
+            >
+              <SelectTrigger className="border-gray-200 focus:ring-blue-500">
+                <SelectValue placeholder="Select condition" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">New</SelectItem>
+                <SelectItem value="used">Used</SelectItem>
+                <SelectItem value="damaged">Damaged</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="purchase_date" className="text-gray-700 font-medium">Purchase Date</Label>
             <Input
-              id="quantity"
-              type="number"
-              value={formData.quantity}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  quantity: parseInt(e.target.value) || 1,
-                }))
-              }
-              min="1"
-              max={item.available_quantity}
-              required
-              className={errors.quantity ? "border-red-500" : ""}
+              id="purchase_date"
+              type="date"
+              value={formData.purchase_date}
+              onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
+              className="border-gray-200 focus:ring-blue-500"
             />
-            {errors.quantity && <p className="text-sm text-red-500">{errors.quantity}</p>}
           </div>
-
           <div className="space-y-2">
-            <Label htmlFor="rent_part">Rent Part (₹)</Label>
+            <Label htmlFor="purchase_price" className="text-gray-700 font-medium">Purchase Price (₹)</Label>
             <Input
-              id="rent_part"
+              id="purchase_price"
               type="number"
-              value={formData.rent_part}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  rent_part: parseFloat(e.target.value) || 0,
-                }))
-              }
+              value={formData.purchase_price}
+              onChange={(e) => setFormData({ ...formData, purchase_price: parseFloat(e.target.value) || 0 })}
               min="0"
-              required
-              className={errors.rent_part ? "border-red-500" : ""}
+              className={errors.purchase_price ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
             />
-            {errors.rent_part && <p className="text-sm text-red-500">{errors.rent_part}</p>}
+            {errors.purchase_price && <p className="text-sm text-red-500">{errors.purchase_price}</p>}
           </div>
-
-          <div className="flex justify-end gap-2 pt-4">
+          <div className="space-y-2">
+            <Label htmlFor="unit_rent" className="text-gray-700 font-medium">Rent per Item (₹)</Label>
+            <Input
+              id="unit_rent"
+              type="number"
+              value={formData.unit_rent}
+              onChange={(e) => setFormData({ ...formData, unit_rent: parseFloat(e.target.value) || 0 })}
+              min="0"
+              className={errors.unit_rent ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
+            />
+            {errors.unit_rent && <p className="text-sm text-red-500">{errors.unit_rent}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="total_quantity" className="text-gray-700 font-medium">Total Quantity</Label>
+            <Input
+              id="total_quantity"
+              type="number"
+              value={formData.total_quantity}
+              onChange={(e) => setFormData({ ...formData, total_quantity: parseInt(e.target.value) || 1 })}
+              min="1"
+              className={errors.total_quantity ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
+            />
+            {errors.total_quantity && <p className="text-sm text-red-500">{errors.total_quantity}</p>}
+          </div>
+          <div className="flex justify-end gap-2">
             <DialogClose asChild>
-              <Button type="button" variant="outline">
+              <Button type="button" variant="outline" className="border-gray-200 hover:bg-gray-100 text-gray-700">
                 Cancel
               </Button>
             </DialogClose>
-            <Button
-              type="submit"
-              disabled={loadingTenants || !formData.tenant_id}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Assign
+            <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white">
+              {isEditMode ? "Update" : "Add"}
             </Button>
           </div>
         </form>
@@ -323,75 +295,56 @@ function AssignForm({ open, onOpenChange, item, onAssign }: AssignFormProps) {
   );
 }
 
-// Main Inventory Component
 export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
-  const [itemToUnassign, setItemToUnassign] = useState<
-    { id: string; furniture_item_id: string; name: string } | null
-  >(null);
-  const [deleteInProgress, setDeleteInProgress] = useState(false);
-  const [unassignInProgress, setUnassignInProgress] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [tenantFurnitureItems, setTenantFurnitureItems] = useState<TenantFurniture[]>([]);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingTenantFurniture, setLoadingTenantFurniture] = useState(false);
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  const [assignItem, setAssignItem] = useState<InventoryItem | null>(null);
   const [calendarDateRange, setCalendarDateRange] = useState<{
     from: Date | null;
     to: Date | null;
   }>({ from: null, to: null });
-  const [showBreakdown, setShowBreakdown] = useState(false);
-  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchInventoryItems = async () => {
     try {
       setLoading(true);
-      setErrorMessage(null);
+      // Fetch all furniture items
       const { data: furnitureData, error: furnitureError } = await supabase
         .from("furniture_items")
         .select(`
           id,
           name,
           category,
-          unit_rent,
-          purchase_price,
-          purchase_date,
           condition,
+          purchase_date,
+          purchase_price,
+          unit_rent,
           total_quantity,
           available_quantity,
-          created_at,
           flat_id,
           flats (name)
         `);
 
       if (furnitureError) throw furnitureError;
 
-      // Fetch calendar events separately
-      const { data: eventData, error: eventError } = await supabase
+      // Fetch associated calendar events
+      const furnitureIds = furnitureData.map((item) => item.id);
+      const { data: eventsData, error: eventsError } = await supabase
         .from("calendar_events")
-        .select("id, related_table, related_id, start_date, end_date")
-        .eq("related_table", "furniture_items");
+        .select("id, related_id, start_date, end_date")
+        .eq("related_table", "furniture_items")
+        .in("related_id", furnitureIds);
 
-      if (eventError) throw eventError;
+      if (eventsError) throw eventsError;
 
-      setCalendarEvents(eventData || []);
-
-      const formattedItems: InventoryItem[] = (furnitureData || []).map((item) => {
-        const relatedEvent = (eventData || []).find(
-          (event) => event.related_id === item.id && event.related_table === "furniture_items"
-        );
-
+      // Map furniture items with their calendar events
+      const formattedItems: InventoryItem[] = furnitureData.map((item) => {
+        const event = eventsData.find((e) => e.related_id === item.id);
         return {
           id: item.id,
           name: item.name,
@@ -399,29 +352,20 @@ export default function Inventory() {
           condition: item.condition,
           location: item.flats?.name || "Unassigned",
           flat_id: item.flat_id,
-          flat: item.flats?.name || null,
-          assigned: item.available_quantity < item.total_quantity,
-          purchaseDate: formatDate(item.purchase_date || item.created_at),
-          purchasePrice: parseFloat(item.purchase_price?.toString() || "0"),
+          flat_name: item.flats?.name || null,
+          purchase_date: format(new Date(item.purchase_date || item.created_at), "yyyy-MM-dd"),
+          purchase_price: parseFloat(item.purchase_price?.toString() || "0"),
           unit_rent: parseFloat(item.unit_rent?.toString() || "0"),
           total_quantity: item.total_quantity,
           available_quantity: item.available_quantity,
-          calendarEvent: relatedEvent
-            ? {
-                startDate: relatedEvent.start_date
-                  ? new Date(relatedEvent.start_date).toLocaleDateString()
-                  : null,
-                endDate: relatedEvent.end_date
-                  ? new Date(relatedEvent.end_date).toLocaleDateString()
-                  : null,
-              }
-            : undefined,
+          calendar_event_id: event?.id,
+          event_start_date: event?.start_date,
+          event_end_date: event?.end_date,
         };
       });
 
       setInventoryItems(formattedItems);
     } catch (error: any) {
-      setErrorMessage("Failed to load inventory items. Please try again.");
       toast({
         title: "Error fetching inventory",
         description: error.message,
@@ -432,156 +376,54 @@ export default function Inventory() {
     }
   };
 
-  const fetchTenantFurniture = async () => {
-    try {
-      setLoadingTenantFurniture(true);
-      const assignedItems = inventoryItems.filter(
-        (item) => item.total_quantity > item.available_quantity
-      );
-
-      const tenantFurniturePromises = assignedItems.map(async (item) => {
-        const { data, error } = await supabase
-          .from("tenant_furniture")
-          .select(
-            `
-            id,
-            furniture_item_id,
-            rent_part,
-            assigned_quantity,
-            tenants (name)
-          `
-          )
-          .eq("furniture_item_id", item.id);
-
-        if (error) throw error;
-
-        return data.map((tf) => ({
-          id: tf.id,
-          furniture_item_id: tf.furniture_item_id,
-          name: item.name,
-          category: item.category,
-          assigned_quantity: tf.assigned_quantity,
-          condition: item.condition,
-          location: item.location,
-          tenant: tf.tenants.name,
-          rent_part: tf.rent_part,
-          calendarEvent: item.calendarEvent,
-        }));
-      });
-
-      const results = await Promise.all(tenantFurniturePromises);
-      setTenantFurnitureItems(results.flat());
-    } catch (error: any) {
-      setErrorMessage("Failed to load assigned items. Please try again.");
-      toast({
-        title: "Error fetching tenant furniture",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingTenantFurniture(false);
-    }
-  };
-
-  const fetchTenants = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("tenants")
-        .select("id, name, flat_id")
-        .eq("is_active", true)
-        .order("name", { ascending: true });
-
-      if (error) throw error;
-      setTenants(data || []);
-    } catch (error: any) {
-      toast({
-        title: "Error fetching tenants",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
   useEffect(() => {
     fetchInventoryItems();
-    fetchTenants();
   }, []);
-
-  useEffect(() => {
-    if (inventoryItems.length > 0) {
-      fetchTenantFurniture();
-    }
-  }, [inventoryItems]);
 
   // Real-time subscriptions
   useEffect(() => {
-    const furnitureSubscription = supabase
-      .channel("furniture_items_changes")
+    const subscription = supabase
+      .channel("inventory_changes")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "furniture_items" },
-        () => {
-          fetchInventoryItems();
-        }
+        () => fetchInventoryItems()
       )
-      .subscribe();
-
-    const tenantFurnitureSubscription = supabase
-      .channel("tenant_furniture_changes")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tenant_furniture" },
-        () => {
-          fetchInventoryItems();
-          fetchTenantFurniture();
-        }
-      )
-      .subscribe();
-
-    const calendarSubscription = supabase
-      .channel("calendar_events_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "calendar_events" },
-        () => {
-          fetchInventoryItems();
-        }
+        { event: "*", schema: "public", table: "calendar_events", filter: "related_table=eq.furniture_items" },
+        () => fetchInventoryItems()
       )
       .subscribe();
 
     return () => {
-      furnitureSubscription.unsubscribe();
-      tenantFurnitureSubscription.unsubscribe();
-      calendarSubscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
-
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-    } catch (e) {
-      return dateStr;
-    }
-  };
 
   const handleDeleteItem = async () => {
     if (!itemToDelete) return;
 
-    setDeleteInProgress(true);
     try {
       const { data: assignments, error: assignError } = await supabase
-        .from("tenant_furniture")
-        .select("id")
-        .eq("furniture_item_id", itemToDelete);
-      if (assignError) throw assignError;
+        .from("furniture_items")
+        .select("flat_id")
+        .eq("id", itemToDelete)
+        .single();
 
-      if (assignments.length > 0) {
-        throw new Error("Cannot delete item with active assignments");
+      if (assignError) throw assignError;
+      if (assignments.flat_id) throw new Error("Cannot delete item assigned to a flat");
+
+      const { data: calendarEvent, error: eventError } = await supabase
+        .from("calendar_events")
+        .select("id")
+        .eq("related_table", "furniture_items")
+        .eq("related_id", itemToDelete)
+        .single();
+
+      if (eventError && eventError.code !== "PGRST116") throw eventError;
+      if (calendarEvent) {
+        await supabase.from("calendar_events").delete().eq("id", calendarEvent.id).eq("related_table", "furniture_items");
       }
 
       const { error } = await supabase
@@ -591,11 +433,12 @@ export default function Inventory() {
 
       if (error) throw error;
 
-      setInventoryItems((prev) => prev.filter((item) => item.id !== itemToDelete));
       toast({
         title: "Item deleted",
         description: "The inventory item has been successfully deleted",
       });
+
+      fetchInventoryItems();
     } catch (error: any) {
       toast({
         title: "Error deleting item",
@@ -603,60 +446,19 @@ export default function Inventory() {
         variant: "destructive",
       });
     } finally {
-      setDeleteInProgress(false);
       setDeleteDialogOpen(false);
       setItemToDelete(null);
     }
   };
 
-  const handleUnassignItem = async () => {
-    if (!itemToUnassign) return;
-
-    setUnassignInProgress(true);
-    try {
-      const { error } = await supabase
-        .from("tenant_furniture")
-        .delete()
-        .eq("id", itemToUnassign.id);
-
-      if (error) throw error;
-
-      // Update available quantity
-      const item = inventoryItems.find((i) => i.id === itemToUnassign.furniture_item_id);
-      if (item) {
-        await supabase
-          .from("furniture_items")
-          .update({
-            available_quantity:
-              item.available_quantity +
-              tenantFurnitureItems.find((tf) => tf.id === itemToUnassign.id)!.assigned_quantity,
-          })
-          .eq("id", itemToUnassign.furniture_item_id);
-      }
-
-      toast({
-        title: "Item unassigned",
-        description: `${itemToUnassign.name} has been unassigned`,
-      });
-
-      fetchInventoryItems();
-      fetchTenantFurniture();
-    } catch (error: any) {
-      toast({
-        title: "Error unassigning item",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setUnassignInProgress(false);
-      setUnassignDialogOpen(false);
-      setItemToUnassign(null);
-    }
-  };
-
   const inventoryStats = useMemo(() => ({
     totalValue: inventoryItems.reduce(
-      (sum, item) => sum + item.purchasePrice * item.total_quantity,
+      (sum, item) => sum + item.purchase_price * item.total_quantity,
+      0
+    ),
+    totalItems: inventoryItems.reduce((sum, item) => sum + item.total_quantity, 0),
+    assignedItems: inventoryItems.reduce(
+      (sum, item) => sum + (item.total_quantity - item.available_quantity),
       0
     ),
     categories: Object.entries(
@@ -678,15 +480,15 @@ export default function Inventory() {
     return inventoryItems.filter((item) => {
       const matchesSearch =
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase());
+        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.flat_name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
 
       const matchesDateRange =
         !calendarDateRange.from ||
         !calendarDateRange.to ||
-        (item.calendarEvent &&
-          item.calendarEvent.startDate &&
-          new Date(item.calendarEvent.startDate) >= calendarDateRange.from &&
-          new Date(item.calendarEvent.startDate) <= calendarDateRange.to);
+        (item.event_start_date &&
+          new Date(item.event_start_date) >= calendarDateRange.from &&
+          new Date(item.event_start_date) <= calendarDateRange.to);
 
       if (activeTab === "all") return matchesSearch && matchesDateRange;
       if (activeTab === "assigned")
@@ -697,114 +499,54 @@ export default function Inventory() {
     });
   }, [inventoryItems, searchQuery, activeTab, calendarDateRange]);
 
-  const filteredTenantFurniture = useMemo(() => {
-    return tenantFurnitureItems.filter((tf) => {
-      const matchesSearch =
-        tf.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tf.category.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesDateRange =
-        !calendarDateRange.from ||
-        !calendarDateRange.to ||
-        (tf.calendarEvent &&
-          tf.calendarEvent.startDate &&
-          new Date(tf.calendarEvent.startDate) >= calendarDateRange.from &&
-          new Date(tf.calendarEvent.startDate) <= calendarDateRange.to);
-
-      return matchesSearch && matchesDateRange;
-    });
-  }, [tenantFurnitureItems, searchQuery, calendarDateRange]);
-
   const isFilterActive = searchQuery || calendarDateRange.from || calendarDateRange.to;
 
   return (
     <TooltipProvider>
-      <div className="space-y-8 p-6 bg-gray-50 min-h-screen">
+      <div className="space-y-8 p-6 bg-luxury-pearl min-h-screen">
         <div className="flex justify-between items-center">
-          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
+          <h1 className="text-4xl font-extrabold text-luxury-charcoal tracking-tight">
             Inventory Management
           </h1>
-          <div className="flex gap-3">
-            <Select
-              value={selectedTenant?.id || ""}
-              onValueChange={(value) => {
-                const tenant = tenants.find((t) => t.id === value);
-                setSelectedTenant(tenant || null);
-                setShowBreakdown(!!tenant);
-              }}
-            >
-              <SelectTrigger className="w-[220px] bg-white shadow-sm border-gray-200">
-                <SelectValue placeholder="Select tenant for breakdown" />
-              </SelectTrigger>
-              <SelectContent>
-                {tenants.map((tenant) => (
-                  <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={() => {
-                setEditItem(null);
-                setDialogOpen(true);
-              }}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-sm transition-all duration-200"
-            >
-              <Plus className="h-5 w-5" />
-              Add Item
-            </Button>
-          </div>
+          <Button
+            onClick={() => {
+              setEditItem(null);
+              setDialogOpen(true);
+            }}
+            className="gap-2 bg-luxury-gold hover:bg-luxury-gold/90 text-luxury-charcoal shadow-gold transition-all duration-200"
+          >
+            <Plus className="h-5 w-5" />
+            Add Item
+          </Button>
         </div>
 
-        {showBreakdown && selectedTenant && (
-          <ApplianceRentBreakdown
-            tenantId={selectedTenant.id}
-            flatId={selectedTenant.flat_id}
-          />
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="shadow-md border border-gray-100">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="shadow-luxury border-luxury-gold/20">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold text-gray-800">Total Value</CardTitle>
-              <CardDescription>Inventory worth</CardDescription>
+              <CardTitle className="text-lg font-semibold text-luxury-charcoal">Inventory Overview</CardTitle>
+              <CardDescription className="text-luxury-slate">Key metrics</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="animate-pulse h-8 w-24 bg-gray-200 rounded"></div>
               ) : (
-                <>
-                  <div className="text-3xl font-bold text-gray-800">
-                    ₹{inventoryStats.totalValue.toLocaleString()}
-                  </div>
-                  <div className="mt-3">
-                    <div className="text-sm text-gray-600">By category:</div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {inventoryStats.categories.map(([category, count]) => (
-                        <Badge
-                          key={category}
-                          variant="secondary"
-                          className="bg-gray-100 text-gray-800"
-                        >
-                          {category}: {count}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                </>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-600">Total Value: ₹{inventoryStats.totalValue.toLocaleString()}</p>
+                  <p className="text-sm text-gray-600">Total Items: {inventoryStats.totalItems}</p>
+                  <p className="text-sm text-gray-600">Assigned Items: {inventoryStats.assignedItems}</p>
+                </div>
               )}
             </CardContent>
           </Card>
 
-          <Card className="shadow-md border border-gray-100">
+          <Card className="shadow-luxury border-luxury-gold/20">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold text-gray-800">Quick Add</CardTitle>
-              <CardDescription>Add item to inventory</CardDescription>
+              <CardTitle className="text-lg font-semibold text-luxury-charcoal">Quick Add</CardTitle>
+              <CardDescription className="text-luxury-slate">Add item to inventory</CardDescription>
             </CardHeader>
             <CardContent>
               <Button
-                className="w-full gap-2 bg-blue-600 hover:bg-blue-700 transition-all duration-200"
+                className="w-full gap-2 bg-luxury-gold hover:bg-luxury-gold/90 text-luxury-charcoal transition-all duration-200 shadow-gold"
                 onClick={() => {
                   setEditItem(null);
                   setDialogOpen(true);
@@ -815,36 +557,60 @@ export default function Inventory() {
               </Button>
             </CardContent>
           </Card>
+
+          <Card className="shadow-luxury border-luxury-gold/20">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-luxury-charcoal">Categories</CardTitle>
+              <CardDescription className="text-luxury-slate">Item breakdown</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="animate-pulse h-8 w-24 bg-gray-200 rounded"></div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {inventoryStats.categories.map(([category, count]) => (
+                    <Badge
+                      key={category}
+                      variant="secondary"
+                      className="bg-gray-100 text-gray-800"
+                    >
+                      {category}: {count}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        {errorMessage && (
-          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md">
-            <p>{errorMessage}</p>
-          </div>
-        )}
-
-        <Card className="shadow-md border border-gray-100">
+        <Card className="shadow-luxury border-luxury-gold/20">
           <CardHeader>
-            <CardTitle className="text-2xl font-semibold text-gray-800">Inventory Items</CardTitle>
+            <CardTitle className="text-2xl font-semibold text-luxury-charcoal">Inventory Items</CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <TabsList className="bg-gray-100 p-1 rounded-lg">
-                  <TabsTrigger value="all" className="px-4 py-2">All Items</TabsTrigger>
-                  <TabsTrigger value="assigned" className="px-4 py-2">Assigned</TabsTrigger>
-                  <TabsTrigger value="available" className="px-4 py-2">Available</TabsTrigger>
+                <TabsList className="bg-luxury-pearl/50 p-1 rounded-lg border border-luxury-gold/20">
+                  <TabsTrigger value="all" className="px-4 py-2 data-[state=active]:bg-luxury-gold data-[state=active]:text-luxury-charcoal">
+                    All Items <Badge className="ml-2 bg-luxury-gold/20 text-luxury-charcoal">{inventoryItems.length}</Badge>
+                  </TabsTrigger>
+                  <TabsTrigger value="assigned" className="px-4 py-2 data-[state=active]:bg-luxury-gold data-[state=active]:text-luxury-charcoal">
+                    Assigned <Badge className="ml-2 bg-luxury-gold/20 text-luxury-charcoal">{inventoryItems.filter(i => i.total_quantity > i.available_quantity).length}</Badge>
+                  </TabsTrigger>
+                  <TabsTrigger value="available" className="px-4 py-2 data-[state=active]:bg-luxury-gold data-[state=active]:text-luxury-charcoal">
+                    Available <Badge className="ml-2 bg-luxury-gold/20 text-luxury-charcoal">{inventoryItems.filter(i => i.available_quantity > 0).length}</Badge>
+                  </TabsTrigger>
                 </TabsList>
 
                 <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                   <div className="relative w-full sm:w-64">
                     <Input
                       placeholder="Search inventory..."
-                      className="pl-10 pr-3 py-2 bg-white shadow-sm border-gray-200"
+                      className="pl-10 pr-3 py-2 bg-white shadow-luxury border-luxury-gold/20 focus:border-luxury-gold focus:ring-luxury-gold/20"
                       onChange={(e) => debouncedSetSearchQuery(e.target.value)}
                     />
                     <div className="absolute inset-y-0 left-0 flex items-center pl-3">
-                      <Search className="h-4 w-4 text-gray-400" />
+                      <Search className="h-4 w-4 text-luxury-slate" />
                     </div>
                   </div>
 
@@ -852,9 +618,9 @@ export default function Inventory() {
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
-                        className={`flex items-center gap-2 ${
-                          calendarDateRange.from ? "bg-blue-100 text-blue-700" : ""
-                        } border-gray-200`}
+                        className={`flex items-center gap-2 border-luxury-gold/20 hover:bg-luxury-pearl/50 ${
+                          calendarDateRange.from ? "bg-luxury-gold/10 text-luxury-charcoal" : ""
+                        }`}
                       >
                         <Filter className="h-4 w-4" />
                         Filter by Event Date
@@ -907,37 +673,34 @@ export default function Inventory() {
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Quantity</TableHead>
-                        <TableHead>Condition</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Purchase Price</TableHead>
-                        <TableHead>Event Start</TableHead>
-                        <TableHead>Event End</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-b border-luxury-gold/20">
+                        <TableHead className="text-luxury-charcoal">Item</TableHead>
+                        <TableHead className="text-luxury-charcoal">Category</TableHead>
+                        <TableHead className="text-luxury-charcoal">Quantity</TableHead>
+                        <TableHead className="text-luxury-charcoal">Condition</TableHead>
+                        <TableHead className="text-luxury-charcoal">Location</TableHead>
+                        <TableHead className="text-luxury-charcoal">Purchase Price</TableHead>
+                        <TableHead className="text-luxury-charcoal">Rent</TableHead>
+                        <TableHead className="text-luxury-charcoal">Event Start</TableHead>
+                        <TableHead className="text-right text-luxury-charcoal">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
-                            <div className="flex items-center justify-center">
-                              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-                            </div>
+                          <TableCell colSpan={9} className="text-center py-10">
+                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mx-auto"></div>
                           </TableCell>
                         </TableRow>
                       ) : getFilteredItems.length > 0 ? (
                         getFilteredItems.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.name}</TableCell>
-                            <TableCell>{item.category}</TableCell>
-                            <TableCell>
+                          <TableRow key={item.id} className="hover:bg-luxury-pearl/50 border-b border-luxury-gold/10">
+                            <TableCell className="font-medium text-luxury-charcoal">{item.name}</TableCell>
+                            <TableCell className="text-luxury-charcoal">{item.category}</TableCell>
+                            <TableCell className="text-luxury-charcoal">
                               {item.total_quantity} (Available: {item.available_quantity})
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="text-luxury-charcoal">
                               <Badge
                                 variant={
                                   item.condition === "new"
@@ -950,22 +713,14 @@ export default function Inventory() {
                                 {item.condition}
                               </Badge>
                             </TableCell>
-                            <TableCell>{item.location}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={item.assigned ? "default" : "secondary"}
-                                className={
-                                  item.assigned ? "bg-green-100 text-green-800" : "bg-blue-100 text-blue-800"
-                                }
-                              >
-                                {item.assigned ? "Assigned" : "Available"}
-                              </Badge>
+                            <TableCell className="text-luxury-charcoal">{item.location}</TableCell>
+                            <TableCell className="text-luxury-charcoal">₹{item.purchase_price.toLocaleString()}</TableCell>
+                            <TableCell className="text-luxury-charcoal">₹{item.unit_rent.toLocaleString()}</TableCell>
+                            <TableCell className="text-luxury-charcoal">
+                              {item.event_start_date
+                                ? format(new Date(item.event_start_date), "MMM d, yyyy")
+                                : "-"}
                             </TableCell>
-                            <TableCell>
-                              ₹{item.purchasePrice.toLocaleString()}
-                            </TableCell>
-                            <TableCell>{item.calendarEvent?.startDate || "-"}</TableCell>
-                            <TableCell>{item.calendarEvent?.endDate || "-"}</TableCell>
                             <TableCell className="text-right space-x-2">
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -985,22 +740,6 @@ export default function Inventory() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setAssignItem(item);
-                                      setAssignDialogOpen(true);
-                                    }}
-                                    disabled={item.available_quantity === 0}
-                                  >
-                                    Assign
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Assign to Tenant</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
                                     variant="ghost"
                                     size="sm"
                                     className="text-red-600 hover:text-red-800"
@@ -1008,7 +747,7 @@ export default function Inventory() {
                                       setItemToDelete(item.id);
                                       setDeleteDialogOpen(true);
                                     }}
-                                    disabled={item.assigned}
+                                    disabled={item.available_quantity < item.total_quantity}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
@@ -1020,7 +759,7 @@ export default function Inventory() {
                         ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
+                          <TableCell colSpan={9} className="text-center py-10">
                             <div className="flex flex-col items-center">
                               <Package2 className="h-10 w-10 text-gray-300 mb-2" />
                               <h3 className="text-lg font-medium text-gray-900">
@@ -1044,87 +783,81 @@ export default function Inventory() {
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Assigned Quantity</TableHead>
-                        <TableHead>Condition</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Tenant</TableHead>
-                        <TableHead>Rent Part</TableHead>
-                        <TableHead>Event Start</TableHead>
-                        <TableHead>Event End</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-b border-luxury-gold/20">
+                        <TableHead className="text-luxury-charcoal">Item</TableHead>
+                        <TableHead className="text-luxury-charcoal">Category</TableHead>
+                        <TableHead className="text-luxury-charcoal">Assigned Quantity</TableHead>
+                        <TableHead className="text-luxury-charcoal">Condition</TableHead>
+                        <TableHead className="text-luxury-charcoal">Location</TableHead>
+                        <TableHead className="text-luxury-charcoal">Rent</TableHead>
+                        <TableHead className="text-luxury-charcoal">Event Start</TableHead>
+                        <TableHead className="text-right text-luxury-charcoal">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {loading || loadingTenantFurniture ? (
+                      {loading ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
-                            <div className="flex items-center justify-center">
-                              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-                            </div>
+                          <TableCell colSpan={8} className="text-center py-10">
+                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mx-auto"></div>
                           </TableCell>
                         </TableRow>
-                      ) : filteredTenantFurniture.length > 0 ? (
-                        filteredTenantFurniture.map((tf) => (
-                          <TableRow key={tf.id}>
-                            <TableCell className="font-medium">{tf.name}</TableCell>
-                            <TableCell>{tf.category}</TableCell>
-                            <TableCell>{tf.assigned_quantity}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  tf.condition === "new"
-                                    ? "default"
-                                    : tf.condition === "used"
-                                    ? "secondary"
-                                    : "destructive"
-                                }
-                              >
-                                {tf.condition}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{tf.location}</TableCell>
-                            <TableCell>{tf.tenant}</TableCell>
-                            <TableCell>₹{tf.rent_part.toLocaleString()}</TableCell>
-                            <TableCell>{tf.calendarEvent?.startDate || "-"}</TableCell>
-                            <TableCell>{tf.calendarEvent?.endDate || "-"}</TableCell>
-                            <TableCell className="text-right space-x-2">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setItemToUnassign({
-                                        id: tf.id,
-                                        furniture_item_id: tf.furniture_item_id,
-                                        name: tf.name,
-                                      });
-                                      setUnassignDialogOpen(true);
-                                    }}
-                                  >
-                                    <Unlink className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Unassign Item</TooltipContent>
-                              </Tooltip>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                      ) : getFilteredItems.filter(i => i.total_quantity > i.available_quantity).length > 0 ? (
+                        getFilteredItems
+                          .filter(i => i.total_quantity > i.available_quantity)
+                          .map((item) => (
+                            <TableRow key={item.id} className="hover:bg-luxury-pearl/50 border-b border-luxury-gold/10">
+                              <TableCell className="font-medium text-luxury-charcoal">{item.name}</TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.category}</TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.total_quantity - item.available_quantity}</TableCell>
+                              <TableCell className="text-luxury-charcoal">
+                                <Badge
+                                  variant={
+                                    item.condition === "new"
+                                      ? "default"
+                                      : item.condition === "used"
+                                      ? "secondary"
+                                      : "destructive"
+                                  }
+                                >
+                                  {item.condition}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.location}</TableCell>
+                              <TableCell className="text-luxury-charcoal">₹{item.unit_rent.toLocaleString()}</TableCell>
+                              <TableCell className="text-luxury-charcoal">
+                                {item.event_start_date
+                                  ? format(new Date(item.event_start_date), "MMM d, yyyy")
+                                  : "-"}
+                              </TableCell>
+                              <TableCell className="text-right space-x-2">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditItem(item);
+                                        setDialogOpen(true);
+                                      }}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Item</TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
+                          <TableCell colSpan={8} className="text-center py-10">
                             <div className="flex flex-col items-center">
                               <Package2 className="h-10 w-10 text-gray-300 mb-2" />
                               <h3 className="text-lg font-medium text-gray-900">
                                 No assigned items found
                               </h3>
                               <p className="text-gray-500 mt-1">
-                                {searchQuery || calendarDateRange.from
-                                  ? "Try adjusting your search or date criteria"
-                                  : "Assign items to tenants"}
+                                Assign items to flats in Furniture Management
                               </p>
                             </div>
                           </TableCell>
@@ -1139,101 +872,94 @@ export default function Inventory() {
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Quantity</TableHead>
-                        <TableHead>Condition</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Purchase Date</TableHead>
-                        <TableHead>Purchase Price</TableHead>
-                        <TableHead>Event Start</TableHead>
-                        <TableHead>Event End</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="border-b border-luxury-gold/20">
+                        <TableHead className="text-luxury-charcoal">Item</TableHead>
+                        <TableHead className="text-luxury-charcoal">Category</TableHead>
+                        <TableHead className="text-luxury-charcoal">Quantity</TableHead>
+                        <TableHead className="text-luxury-charcoal">Condition</TableHead>
+                        <TableHead className="text-luxury-charcoal">Location</TableHead>
+                        <TableHead className="text-luxury-charcoal">Purchase Price</TableHead>
+                        <TableHead className="text-luxury-charcoal">Rent</TableHead>
+                        <TableHead className="text-right text-luxury-charcoal">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loading ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
-                            <div className="flex items-center justify-center">
-                              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-                            </div>
+                          <TableCell colSpan={8} className="text-center py-10">
+                            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mx-auto"></div>
                           </TableCell>
                         </TableRow>
-                      ) : getFilteredItems.length > 0 ? (
-                        getFilteredItems.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.name}</TableCell>
-                            <TableCell>{item.category}</TableCell>
-                            <TableCell>{item.available_quantity}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  item.condition === "new"
-                                    ? "default"
-                                    : item.condition === "used"
-                                    ? "secondary"
-                                    : "destructive"
-                                }
-                              >
-                                {item.condition}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{item.location}</TableCell>
-                            <TableCell>{item.purchaseDate}</TableCell>
-                            <TableCell>
-                              ₹{item.purchasePrice.toLocaleString()}
-                            </TableCell>
-                            <TableCell>{item.calendarEvent?.startDate || "-"}</TableCell>
-                            <TableCell>{item.calendarEvent?.endDate || "-"}</TableCell>
-                            <TableCell className="text-right space-x-2">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setEditItem(item);
-                                      setDialogOpen(true);
-                                    }}
-                                  >
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Edit Item</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setAssignItem(item);
-                                      setAssignDialogOpen(true);
-                                    }}
-                                    disabled={item.available_quantity === 0}
-                                  >
-                                    Assign
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Assign to Tenant</TooltipContent>
-                              </Tooltip>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                      ) : getFilteredItems.filter(i => i.available_quantity > 0).length > 0 ? (
+                        getFilteredItems
+                          .filter(i => i.available_quantity > 0)
+                          .map((item) => (
+                            <TableRow key={item.id} className="hover:bg-luxury-pearl/50 border-b border-luxury-gold/10">
+                              <TableCell className="font-medium text-luxury-charcoal">{item.name}</TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.category}</TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.available_quantity}</TableCell>
+                              <TableCell className="text-luxury-charcoal">
+                                <Badge
+                                  variant={
+                                    item.condition === "new"
+                                      ? "default"
+                                      : item.condition === "used"
+                                      ? "secondary"
+                                      : "destructive"
+                                  }
+                                >
+                                  {item.condition}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-luxury-charcoal">{item.location}</TableCell>
+                              <TableCell className="text-luxury-charcoal">₹{item.purchase_price.toLocaleString()}</TableCell>
+                              <TableCell className="text-luxury-charcoal">₹{item.unit_rent.toLocaleString()}</TableCell>
+                              <TableCell className="text-right space-x-2">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditItem(item);
+                                        setDialogOpen(true);
+                                      }}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Edit Item</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-red-600 hover:text-red-800"
+                                      onClick={() => {
+                                        setItemToDelete(item.id);
+                                        setDeleteDialogOpen(true);
+                                      }}
+                                      disabled={item.available_quantity < item.total_quantity}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete Item</TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={10} className="text-center py-10">
+                          <TableCell colSpan={8} className="text-center py-10">
                             <div className="flex flex-col items-center">
                               <Package2 className="h-10 w-10 text-gray-300 mb-2" />
                               <h3 className="text-lg font-medium text-gray-900">
                                 No available items found
                               </h3>
                               <p className="text-gray-500 mt-1">
-                                {searchQuery || calendarDateRange.from
-                                  ? "Try adjusting your search or date criteria"
-                                  : "Add new items to inventory"}
+                                Add new items to inventory
                               </p>
                             </div>
                           </TableCell>
@@ -1258,63 +984,25 @@ export default function Inventory() {
           isEditMode={!!editItem}
         />
 
-        {assignItem && (
-          <AssignForm
-            open={assignDialogOpen}
-            onOpenChange={(open) => {
-              setAssignDialogOpen(open);
-              if (!open) setAssignItem(null);
-            }}
-            item={assignItem}
-            onAssign={() => {
-              fetchInventoryItems();
-              fetchTenantFurniture();
-            }}
-          />
-        )}
-
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Inventory Item</AlertDialogTitle>
-              <AlertDialogDescription>
+          <AlertDialogContent className="max-w-[400px] bg-white shadow-luxury border-luxury-gold/20">
+            <AlertDialogHeader className="space-y-2">
+              <AlertDialogTitle className="text-xl font-semibold text-gray-900">
+                Delete Inventory Item
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-gray-600">
                 Are you sure you want to delete this inventory item? This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleteInProgress}>
+            <AlertDialogFooter className="mt-6">
+              <AlertDialogCancel className="border-gray-200 hover:bg-gray-100 text-gray-700">
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleDeleteItem}
-                disabled={deleteInProgress}
-                className="bg-red-600 hover:bg-red-700"
+                className="bg-red-600 hover:bg-red-700 text-white"
               >
-                {deleteInProgress ? "Deleting..." : "Delete"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Unassign Inventory Item</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to unassign {itemToUnassign?.name}?
-                This will make all assigned items available again.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={unassignInProgress}>
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleUnassignItem}
-                disabled={unassignInProgress}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {unassignInProgress ? "Unassigning..." : "Unassign"}
+                Delete
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

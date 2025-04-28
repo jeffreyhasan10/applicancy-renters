@@ -50,6 +50,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { format } from "date-fns";
 
 interface FurnitureItem {
   id: string;
@@ -58,6 +59,9 @@ interface FurnitureItem {
   assigned_quantity: number;
   total_quantity: number;
   available_quantity: number;
+  calendar_event_id?: string;
+  event_start_date?: string;
+  event_end_date?: string;
 }
 
 interface InventoryItem {
@@ -122,27 +126,45 @@ export default function FurnitureManager({
     }
   };
 
-  // Fetch assigned furniture (from furniture_items where flat_id matches)
+  // Fetch assigned furniture and associated calendar events
   const fetchFurniture = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      // Fetch furniture items assigned to the flat
+      const { data: furnitureData, error: furnitureError } = await supabase
         .from("furniture_items")
-        .select("id, name, unit_rent, total_quantity, available_quantity")
+        .select("id, name, unit_rent, total_quantity, available_quantity, category, is_appliance")
         .eq("flat_id", flatId)
         .eq("category", "Furniture")
         .eq("is_appliance", false);
 
-      if (error) throw error;
+      if (furnitureError) throw furnitureError;
 
-      const formattedFurniture: FurnitureItem[] = (data || []).map((item) => ({
-        id: item.id,
-        name: item.name,
-        unit_rent: parseFloat(item.unit_rent?.toString() || "0"),
-        assigned_quantity: item.total_quantity - item.available_quantity,
-        total_quantity: item.total_quantity,
-        available_quantity: item.available_quantity,
-      }));
+      // Fetch associated calendar events
+      const furnitureIds = furnitureData.map((item) => item.id);
+      const { data: eventsData, error: eventsError } = await supabase
+        .from("calendar_events")
+        .select("id, related_id, start_date, end_date")
+        .eq("related_table", "furniture_items")
+        .in("related_id", furnitureIds);
+
+      if (eventsError) throw eventsError;
+
+      // Map furniture items with their calendar events
+      const formattedFurniture: FurnitureItem[] = furnitureData.map((item) => {
+        const event = eventsData.find((e) => e.related_id === item.id);
+        return {
+          id: item.id,
+          name: item.name,
+          unit_rent: parseFloat(item.unit_rent?.toString() || "0"),
+          assigned_quantity: item.total_quantity - item.available_quantity,
+          total_quantity: item.total_quantity,
+          available_quantity: item.available_quantity,
+          calendar_event_id: event?.id,
+          event_start_date: event?.start_date,
+          event_end_date: event?.end_date,
+        };
+      });
 
       setFurniture(formattedFurniture);
     } catch (error: any) {
@@ -195,6 +217,11 @@ export default function FurnitureManager({
           fetchInventoryItems();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "calendar_events", filter: "related_table=eq.furniture_items" },
+        () => fetchFurniture()
+      )
       .subscribe();
 
     return () => {
@@ -224,17 +251,57 @@ export default function FurnitureManager({
       const selectedItem = inventoryItems.find((item) => item.id === assignFormData.inventory_item_id);
       if (!selectedItem) throw new Error("Selected inventory item not found");
 
-      // Update furniture_items with flat_id and decrease available_quantity
-      const { error } = await supabase
+      // Check for existing assignment to this flat
+      const { data: existingItem, error: checkError } = await supabase
         .from("furniture_items")
-        .update({
-          flat_id: flatId,
-          available_quantity: selectedItem.available_quantity - assignFormData.quantity,
-          unit_rent: assignFormData.unit_rent,
-        })
-        .eq("id", selectedItem.id);
+        .select("id, available_quantity")
+        .eq("id", selectedItem.id)
+        .eq("flat_id", flatId)
+        .single();
 
-      if (error) throw error;
+      if (checkError && checkError.code !== "PGRST116") throw checkError;
+
+      if (existingItem) {
+        // Update existing assignment
+        const newAvailableQuantity = existingItem.available_quantity - assignFormData.quantity;
+        const { error: updateError } = await supabase
+          .from("furniture_items")
+          .update({
+            available_quantity: newAvailableQuantity,
+            unit_rent: assignFormData.unit_rent,
+          })
+          .eq("id", selectedItem.id);
+
+        if (updateError) throw updateError;
+      } else {
+        // New assignment
+        const { error: updateError } = await supabase
+          .from("furniture_items")
+          .update({
+            flat_id: flatId,
+            available_quantity: selectedItem.available_quantity - assignFormData.quantity,
+            unit_rent: assignFormData.unit_rent,
+          })
+          .eq("id", selectedItem.id);
+
+        if (updateError) throw updateError;
+      }
+
+      // Create calendar event
+      const { data: calendarEvent, error: eventError } = await supabase
+        .from("calendar_events")
+        .insert({
+          title: `Furniture Assignment: ${selectedItem.name}`,
+          description: `Assigned ${assignFormData.quantity} ${selectedItem.name}(s) to flat`,
+          start_date: new Date().toISOString(),
+          related_table: "furniture_items",
+          related_id: selectedItem.id,
+          flat_id: flatId,
+        })
+        .select("id")
+        .single();
+
+      if (eventError) throw eventError;
 
       toast({
         title: "Furniture assigned",
@@ -269,6 +336,17 @@ export default function FurnitureManager({
         .eq("id", itemToUnassign.id);
 
       if (error) throw error;
+
+      // Delete associated calendar event
+      if (itemToUnassign.calendar_event_id) {
+        const { error: eventError } = await supabase
+          .from("calendar_events")
+          .delete()
+          .eq("id", itemToUnassign.calendar_event_id)
+          .eq("related_table", "furniture_items");
+
+        if (eventError) throw eventError;
+      }
 
       toast({
         title: "Furniture unassigned",
@@ -339,56 +417,62 @@ export default function FurnitureManager({
 
   return (
     <TooltipProvider>
-      <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
+      <div className="space-y-6 p-6 bg-luxury-pearl min-h-screen">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
-            Furniture (Connected with Inventory)
+          <h1 className="text-3xl font-bold text-luxury-charcoal tracking-tight">
+            Furniture Management
           </h1>
           <Button
             onClick={() => setAssignDialogOpen(true)}
-            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 shadow-sm"
+            className="w-full sm:w-auto bg-luxury-gold hover:bg-luxury-gold/90 text-luxury-charcoal transition-all duration-200 shadow-gold"
           >
             <Plus className="h-5 w-5 mr-2" />
             Assign Furniture
           </Button>
         </div>
 
-        <Card className="shadow-sm border border-gray-100 bg-white rounded-lg">
-          <CardHeader className="border-b border-gray-100">
-            <CardTitle className="text-xl font-semibold text-gray-800">Assigned Furniture</CardTitle>
+        <Card className="shadow-luxury border-luxury-gold/20 bg-white rounded-lg">
+          <CardHeader className="border-b border-luxury-gold/20">
+            <CardTitle className="text-xl font-semibold text-luxury-charcoal">Assigned Furniture</CardTitle>
           </CardHeader>
           <CardContent className="p-6">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-gray-700">Name</TableHead>
-                    <TableHead className="text-gray-700">Rent (₹)</TableHead>
-                    <TableHead className="text-gray-700">Quantity</TableHead>
-                    <TableHead className="text-right text-gray-700">Actions</TableHead>
+                  <TableRow className="border-b border-luxury-gold/20">
+                    <TableHead className="text-luxury-charcoal">Name</TableHead>
+                    <TableHead className="text-luxury-charcoal">Rent (₹)</TableHead>
+                    <TableHead className="text-luxury-charcoal">Quantity</TableHead>
+                    <TableHead className="text-luxury-charcoal">Event Start</TableHead>
+                    <TableHead className="text-right text-luxury-charcoal">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-10">
-                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mx-auto"></div>
+                      <TableCell colSpan={5} className="text-center py-10">
+                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-luxury-gold mx-auto"></div>
                       </TableCell>
                     </TableRow>
                   ) : furniture.length > 0 ? (
                     furniture.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium text-gray-900">{item.name}</TableCell>
+                      <TableRow key={item.id} className="hover:bg-luxury-pearl/50 transition-colors">
+                        <TableCell className="font-medium text-luxury-charcoal">{item.name}</TableCell>
                         <TableCell>
                           <Input
                             type="number"
                             value={item.unit_rent}
                             onChange={(e) => handleUpdateRent(item, parseFloat(e.target.value) || 0)}
-                            className="w-24 border-gray-200 focus:ring-blue-500"
+                            className="w-24 border-luxury-gold/20 focus:ring-luxury-gold focus:border-luxury-gold"
                             min="0"
                           />
                         </TableCell>
                         <TableCell>{item.assigned_quantity}</TableCell>
+                        <TableCell>
+                          {item.event_start_date
+                            ? format(new Date(item.event_start_date), "MMM d, yyyy")
+                            : "-"}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -411,11 +495,11 @@ export default function FurnitureManager({
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-10">
+                      <TableCell colSpan={5} className="text-center py-10">
                         <div className="flex flex-col items-center">
-                          <Package2 className="h-10 w-10 text-gray-300 mb-2" />
-                          <h3 className="text-lg font-medium text-gray-900">No furniture assigned</h3>
-                          <p className="text-gray-500 mt-1">Assign furniture from inventory to get started</p>
+                          <Package2 className="h-10 w-10 text-luxury-gold mb-2" />
+                          <h3 className="text-lg font-medium text-luxury-charcoal">No furniture assigned</h3>
+                          <p className="text-luxury-slate mt-1">Assign furniture from inventory to get started</p>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -425,21 +509,21 @@ export default function FurnitureManager({
             </div>
             <div className="mt-6 space-y-4">
               <div className="flex items-center gap-4">
-                <Label htmlFor="roundoff" className="text-gray-700 font-medium">Roundoff Amount (₹)</Label>
+                <Label htmlFor="roundoff" className="text-luxury-charcoal font-medium">Roundoff Amount (₹)</Label>
                 <Input
                   id="roundoff"
                   type="number"
                   value={roundoff}
                   onChange={(e) => setRoundoff(Number(e.target.value) || 0)}
-                  className="w-32 border-gray-200 focus:ring-blue-500"
+                  className="w-32 border-luxury-gold/20 focus:ring-luxury-gold focus:border-luxury-gold"
                 />
               </div>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <p className="text-lg font-semibold text-gray-800">
+                <p className="text-lg font-semibold text-luxury-charcoal">
                   Total Rent: ₹{totalRent.toLocaleString()}
                 </p>
                 {!rentMatchesFlat && flatRent > 0 && (
-                  <p className="text-sm text-red-600 flex items-center gap-2">
+                  <p className="text-sm text-danger flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
                     Total does not match flat rent (₹{flatRent.toLocaleString()})
                   </p>
@@ -451,10 +535,10 @@ export default function FurnitureManager({
 
         {/* Assign Furniture Dialog */}
         <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-          <DialogContent className="sm:max-w-[500px] bg-white rounded-lg shadow-xl p-6 border border-gray-100">
+          <DialogContent className="sm:max-w-[500px] bg-white rounded-lg shadow-luxury p-6 border border-luxury-gold/20">
             <DialogHeader>
-              <DialogTitle className="text-xl font-semibold text-gray-900">Assign Furniture</DialogTitle>
-              <DialogDescription className="text-gray-600">
+              <DialogTitle className="text-xl font-semibold text-luxury-charcoal">Assign Furniture</DialogTitle>
+              <DialogDescription className="text-luxury-slate">
                 Select a furniture item from inventory to assign to this flat.
               </DialogDescription>
             </DialogHeader>
@@ -538,7 +622,7 @@ export default function FurnitureManager({
 
         {/* Unassign Confirmation Dialog */}
         <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
-          <AlertDialogContent className="bg-white border border-gray-100 rounded-lg">
+          <AlertDialogContent className="bg-white border border-luxury-gold/20 rounded-lg shadow-luxury">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-gray-900">Unassign Furniture</AlertDialogTitle>
               <AlertDialogDescription className="text-gray-600">
