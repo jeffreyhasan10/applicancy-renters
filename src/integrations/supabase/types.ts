@@ -640,6 +640,54 @@ export type Database = {
           },
         ]
       }
+      maintenance_requests: {
+        Row: {
+          id: string;
+          title: string;
+          description: string | null;
+          status: string;
+          priority: string;
+          created_at: string;
+          flat_id: string;
+          tenant_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          title: string;
+          description?: string | null;
+          status?: string;
+          priority?: string;
+          created_at?: string;
+          flat_id: string;
+          tenant_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          title?: string;
+          description?: string | null;
+          status?: string;
+          priority?: string;
+          created_at?: string;
+          flat_id?: string;
+          tenant_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_requests_flat_id_fkey";
+            columns: ["flat_id"];
+            isOneToOne: false;
+            referencedRelation: "flats";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "maintenance_requests_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          }
+        ];
+      }
     }
     Views: {
       flat_expense_report: {

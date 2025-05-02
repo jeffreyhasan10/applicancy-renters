@@ -10,6 +10,7 @@ import {
   ChevronDown,
   RefreshCw,
   X,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import PageHeader from "@/components/common/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { typedSupabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
@@ -47,12 +48,45 @@ import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { Label } from "@/components/ui/label";
 
+interface Rent {
+  id: string;
+  tenant_id: string;
+  flat_id: string;
+  due_date: string;
+  amount: number;
+  is_paid: boolean;
+  paid_on: string | null;
+  whatsapp_sent: boolean;
+  custom_message: string | null;
+  last_reminder_date: string | null;
+  notes: string | null;
+  calendar_event_id: string | null;
+  payment_frequency: string;
+  tenants?: {
+    id: string;
+    name: string;
+    phone: string;
+    flat_id: string;
+  };
+  flats?: {
+    id: string;
+    name: string;
+    address: string;
+    monthly_rent_target: number;
+  };
+  calendar_events?: {
+    id: string;
+    start_date: string;
+    end_date: string;
+  };
+}
+
 export default function Rent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [customMessageModalOpen, setCustomMessageModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [selectedRent, setSelectedRent] = useState<any>(null);
+  const [selectedRent, setSelectedRent] = useState<Rent | null>(null);
   const [customMessageText, setCustomMessageText] = useState("");
   const [selectedRents, setSelectedRents] = useState<string[]>([]);
   const [sortField, setSortField] = useState("due_date");
@@ -64,12 +98,26 @@ export default function Rent() {
     tenantId: "all",
     status: "all",
     paymentFrequency: "all",
+    month: "all",
     dateRange: { from: null as Date | null, to: null as Date | null },
     calendarEventRange: { from: null as Date | null, to: null as Date | null },
     amountRange: { min: null as number | null, max: null as number | null },
   });
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Generate available months for filter
+  const availableMonths = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const months = eachMonthOfInterval({
+      start: new Date(currentYear, 0, 1),
+      end: new Date(currentYear, 11, 31),
+    });
+    return months.map((month) => ({
+      value: month.getMonth().toString(),
+      label: format(month, "MMMM"),
+    }));
+  }, []);
 
   // Fetch flats with tenant count
   const { data: flatsWithTenants = [], isLoading: isFlatsLoading } = useQuery({
@@ -147,6 +195,17 @@ export default function Rent() {
       if (filters.tenantId !== "all") query = query.eq("tenant_id", filters.tenantId);
       if (filters.status !== "all") query = query.eq("is_paid", filters.status === "paid");
       if (filters.paymentFrequency !== "all") query = query.eq("payment_frequency", filters.paymentFrequency);
+      
+      // Month filter
+      if (filters.month !== "all") {
+        const month = parseInt(filters.month);
+        const year = new Date().getFullYear();
+        const startDate = startOfMonth(new Date(year, month, 1));
+        const endDate = endOfMonth(new Date(year, month, 1));
+        query = query.gte("due_date", format(startDate, "yyyy-MM-dd"));
+        query = query.lte("due_date", format(endDate, "yyyy-MM-dd"));
+      }
+
       if (filters.dateRange.from) query = query.gte("due_date", format(filters.dateRange.from, "yyyy-MM-dd"));
       if (filters.dateRange.to) query = query.lte("due_date", format(filters.dateRange.to, "yyyy-MM-dd"));
       if (filters.calendarEventRange.from) query = query.gte("calendar_events.start_date", format(filters.calendarEventRange.from, "yyyy-MM-dd"));
@@ -158,10 +217,16 @@ export default function Rent() {
       if (error) throw error;
 
       return {
-        data: data
+        data: (data as Rent[])
           .filter((rent) => rent.flats)
           .map((rent) => {
             const flat = flatsWithTenants.find((f) => f.id === rent.flat_id);
+            const dueDate = rent.due_date ? new Date(rent.due_date) : null;
+            const paidOn = rent.paid_on ? new Date(rent.paid_on) : null;
+            const lastReminderDate = rent.last_reminder_date ? new Date(rent.last_reminder_date) : null;
+            const calendarStartDate = rent.calendar_events?.start_date ? new Date(rent.calendar_events.start_date) : null;
+            const calendarEndDate = rent.calendar_events?.end_date ? new Date(rent.calendar_events.end_date) : null;
+
             return {
               id: rent.id,
               tenant_id: rent.tenant_id,
@@ -171,18 +236,20 @@ export default function Rent() {
               flatName: rent.flats?.name || "Unknown",
               flatAddress: rent.flats?.address || "",
               tenantCount: flat?.tenant_count || 0,
-              dueDate: rent.due_date ? new Date(rent.due_date).toLocaleDateString() : "N/A",
+              dueDate: dueDate ? format(dueDate, "MMM dd, yyyy") : "N/A",
+              dueMonth: dueDate ? format(dueDate, "MMMM yyyy") : "N/A",
               amount: rent.amount,
               monthlyRentTarget: rent.flats?.monthly_rent_target || null,
               status: rent.is_paid ? "paid" : "pending",
-              paidOn: rent.paid_on ? new Date(rent.paid_on).toLocaleDateString() : null,
+              paidOn: paidOn ? format(paidOn, "MMM dd, yyyy") : null,
               whatsappSent: rent.whatsapp_sent,
               customMessage: rent.custom_message,
-              lastReminderDate: rent.last_reminder_date ? new Date(rent.last_reminder_date).toLocaleDateString() : null,
+              lastReminderDate: lastReminderDate ? format(lastReminderDate, "MMM dd, yyyy") : null,
               notes: rent.notes,
               calendarEventId: rent.calendar_event_id,
-              calendarStartDate: rent.calendar_events?.start_date ? new Date(rent.calendar_events.start_date).toLocaleDateString() : null,
-              calendarEndDate: rent.calendar_events?.end_date ? new Date(rent.calendar_events.end_date).toLocaleDateString() : null,
+              calendarStartDate: calendarStartDate ? format(calendarStartDate, "MMM dd, yyyy") : null,
+              calendarEndDate: calendarEndDate ? format(calendarEndDate, "MMM dd, yyyy") : null,
+              calendarMonth: calendarStartDate ? format(calendarStartDate, "MMMM yyyy") : null,
               paymentFrequency: rent.payment_frequency || "N/A",
             };
           }),
@@ -622,6 +689,7 @@ export default function Rent() {
       tenantId: "all",
       status: "all",
       paymentFrequency: "all",
+      month: "all",
       dateRange: { from: null, to: null },
       calendarEventRange: { from: null, to: null },
       amountRange: { min: null, max: null },
@@ -633,7 +701,7 @@ export default function Rent() {
   // Validate amount range
   const isValidAmountRange = () => {
     if (filters.amountRange.min !== null && filters.amountRange.min < 0) return false;
-    if (filters.amountRange.max !== null && filters.amountRange.max < 0) vender
+    if (filters.amountRange.max !== null && filters.amountRange.max < 0) return false;
     if (
       filters.amountRange.min !== null &&
       filters.amountRange.max !== null &&
@@ -822,6 +890,25 @@ export default function Rent() {
                     </DialogHeader>
                     <div className="grid grid-cols-1 gap-6 py-6">
                       <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-700">Month</Label>
+                        <Select
+                          value={filters.month}
+                          onValueChange={(value) => setFilters((prev) => ({ ...prev, month: value }))}
+                        >
+                          <SelectTrigger className="rounded-lg border-gray-300 focus:ring-2 focus:ring-indigo-500">
+                            <SelectValue placeholder="Select month" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Months</SelectItem>
+                            {availableMonths.map((month) => (
+                              <SelectItem key={month.value} value={month.value}>
+                                {month.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
                         <Label className="text-sm font-medium text-gray-700">Flat</Label>
                         <Select
                           value={filters.flatId}
@@ -1003,6 +1090,12 @@ export default function Rent() {
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                          onClick={() => handleSort("dueMonth")}
+                        >
+                          Month {sortField === "dueMonth" && <ChevronDown className="inline h-4 w-4" />}
+                        </th>
+                        <th
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                           onClick={() => handleSort("flatName")}
                         >
                           Flat {sortField === "flatName" && <ChevronDown className="inline h-4 w-4" />}
@@ -1074,6 +1167,9 @@ export default function Rent() {
                                 onCheckedChange={() => toggleSelectRent(rent.id)}
                                 aria-label={`Select rent for ${rent.tenant}`}
                               />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {rent.dueMonth}
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 line-clamp-1">{rent.flatName}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.tenantCount}</td>
@@ -1186,6 +1282,7 @@ export default function Rent() {
                             </span>
                           </div>
                           <div className="space-y-2 text-sm">
+                            <p><strong>Month:</strong> {rent.dueMonth}</p>
                             <p><strong>Flat:</strong> {rent.flatName}</p>
                             <p><strong>Tenant:</strong> {rent.tenant}</p>
                             <p><strong>Due Date:</strong> {rent.dueDate}</p>

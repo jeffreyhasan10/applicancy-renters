@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import { Loader2 } from "lucide-react";
 
 interface InventoryItem {
   id: string;
@@ -27,12 +28,13 @@ interface InventoryItem {
   category: string;
   condition: "used" | "new" | "damaged";
   flat_id: string | null;
-  flat: string | null;
-  purchaseDate: string;
-  purchasePrice: number;
+  flat_name: string | null;
+  purchase_date: string;
+  purchase_price: number;
   unit_rent: number;
   total_quantity: number;
   available_quantity: number;
+  is_appliance: boolean;
 }
 
 interface Flat {
@@ -41,11 +43,11 @@ interface Flat {
 }
 
 interface InventoryFormProps {
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  onItemAdded?: () => void;
-  initialItem?: Partial<InventoryItem>;
-  isEditMode?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onItemAdded: () => void;
+  initialItem?: InventoryItem;
+  isEditMode: boolean;
 }
 
 const PRESET_ITEMS = [
@@ -54,7 +56,7 @@ const PRESET_ITEMS = [
   { name: "Sofa", category: "Furniture" },
   { name: "Table", category: "Furniture" },
   { name: "Chair", category: "Furniture" },
-  { name: "Fridge", category: "Appliances" },
+  { name: "Fridge", category: "Appliance" },
 ];
 
 export default function InventoryForm({
@@ -65,22 +67,23 @@ export default function InventoryForm({
   isEditMode = false,
 }: InventoryFormProps) {
   const { toast } = useToast();
-  const [formData, setFormData] = useState<Partial<InventoryItem>>(
-    initialItem || {
-      name: "",
-      category: "Furniture",
-      condition: "new",
-      flat_id: null,
-      flat: null,
-      purchaseDate: "",
-      purchasePrice: 0,
-      unit_rent: 0,
-      total_quantity: 1,
-      available_quantity: 1,
-    }
-  );
+  const [formData, setFormData] = useState<Omit<InventoryItem, 'id'>>({
+    name: initialItem?.name || "",
+    category: initialItem?.category || "Furniture",
+    condition: initialItem?.condition || "new",
+    flat_id: initialItem?.flat_id || null,
+    flat_name: initialItem?.flat_name || null,
+    purchase_date: initialItem?.purchase_date || new Date().toISOString().split('T')[0],
+    purchase_price: initialItem?.purchase_price || 0,
+    unit_rent: initialItem?.unit_rent || 0,
+    total_quantity: initialItem?.total_quantity || 1,
+    available_quantity: initialItem?.available_quantity || 1,
+    is_appliance: initialItem?.is_appliance || false,
+  });
   const [flats, setFlats] = useState<Flat[]>([]);
   const [loadingFlats, setLoadingFlats] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [existingItem, setExistingItem] = useState<InventoryItem | null>(null);
 
   useEffect(() => {
     const fetchFlats = async () => {
@@ -107,93 +110,168 @@ export default function InventoryForm({
     fetchFlats();
   }, [toast]);
 
+  useEffect(() => {
+    if (formData.name && formData.condition) {
+      checkForExistingItem();
+    } else {
+      setExistingItem(null);
+    }
+  }, [formData.name, formData.category, formData.condition, formData.flat_id]);
+
+  const checkForExistingItem = async () => {
+    try {
+      const query = supabase
+        .from("furniture_items")
+        .select("*")
+        .eq("name", formData.name)
+        .eq("category", formData.category)
+        .eq("condition", formData.condition);
+      
+      if (formData.flat_id) {
+        query.eq("flat_id", formData.flat_id);
+      } else {
+        query.is("flat_id", null);
+      }
+  
+      // Get all matching items (should be just one, but handle multiple just in case)
+      const { data, error } = await query;
+  
+      if (error && error.code !== "PGRST116") throw error;
+      // Just take the first match if there are multiple
+      setExistingItem(data?.[0] || null);
+    } catch (error: any) {
+      console.error("Error checking for existing item:", error);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateForm() || isSubmitting) return;
+
+    setIsSubmitting(true);
     try {
-      if (!formData.flat_id) throw new Error("Please select a flat");
-      if (!formData.condition) throw new Error("Please select a condition");
-      if (formData.unit_rent === undefined || formData.unit_rent === null)
-        throw new Error("Please enter a unit rent value");
-      if (formData.total_quantity! < 1)
-        throw new Error("Quantity must be at least 1");
-
-      const itemData = {
-        name: formData.name,
-        category: formData.category,
-        condition: formData.condition,
-        purchase_date: formData.purchaseDate || new Date().toISOString().split("T")[0],
-        purchase_price: formData.purchasePrice,
-        flat_id: formData.flat_id,
-        unit_rent: formData.unit_rent,
-        total_quantity: formData.total_quantity,
-        available_quantity: formData.total_quantity,
-      };
-
-      let data, error;
-      if (isEditMode && initialItem?.id) {
-        // Check if quantity change affects tenant_furniture assignments
-        const { data: assignments, error: assignError } = await supabase
-          .from("tenant_furniture")
-          .select("assigned_quantity")
-          .eq("furniture_item_id", initialItem.id);
-        if (assignError) throw assignError;
-
-        const assignedTotal = assignments.reduce(
-          (sum, a) => sum + a.assigned_quantity,
-          0
-        );
-        const newTotal = formData.total_quantity!;
-        const newAvailable = newTotal - assignedTotal;
-        if (newAvailable < 0) {
-          throw new Error(
-            `Cannot reduce quantity below assigned amount (${assignedTotal})`
-          );
-        }
-
-        ({ data, error } = await supabase
+      if (isEditMode && initialItem) {
+        // Update existing item
+        const { error } = await supabase
           .from("furniture_items")
-          .update({ ...itemData, available_quantity: newAvailable })
-          .eq("id", initialItem.id)
-          .select());
-      } else {
-        ({ data, error } = await supabase
-          .from("furniture_items")
-          .insert(itemData)
-          .select());
-      }
+          .update({
+            name: formData.name,
+            category: formData.category,
+            condition: formData.condition,
+            flat_id: formData.flat_id,
+            purchase_date: formData.purchase_date,
+            purchase_price: formData.purchase_price,
+            unit_rent: formData.unit_rent,
+            total_quantity: formData.total_quantity,
+            available_quantity: formData.available_quantity,
+            is_appliance: formData.is_appliance,
+          })
+          .eq("id", initialItem.id);
 
-      if (error) throw error;
-
-      toast({
-        title: isEditMode ? "Item updated" : "Item added",
-        description: `The inventory item has been successfully ${
-          isEditMode ? "updated" : "added"
-        }`,
-      });
-
-      if (!isEditMode) {
-        setFormData({
-          name: "",
-          category: "Furniture",
-          condition: "new",
-          flat_id: null,
-          flat: null,
-          purchaseDate: "",
-          purchasePrice: 0,
-          unit_rent: 0,
-          total_quantity: 1,
-          available_quantity: 1,
+        if (error) throw error;
+        toast({
+          title: "Item updated",
+          description: `${formData.name} has been updated`,
         });
+      } else if (existingItem) {
+        // Update existing item's quantity
+        const newTotalQuantity = existingItem.total_quantity + formData.total_quantity;
+        const newAvailableQuantity = existingItem.available_quantity + formData.total_quantity;
+
+        const { error } = await supabase
+          .from("furniture_items")
+          .update({
+            total_quantity: newTotalQuantity,
+            available_quantity: newAvailableQuantity,
+            purchase_date: formData.purchase_date,
+            purchase_price: formData.purchase_price,
+            unit_rent: formData.unit_rent,
+          })
+          .eq("id", existingItem.id);
+
+        if (error) throw error;
+        toast({
+          title: "Item quantity updated",
+          description: `Added ${formData.total_quantity} more ${formData.name}(s) to inventory`,
+        });
+      } else {
+        // Create new item
+        const { error } = await supabase.from("furniture_items").insert({
+          name: formData.name,
+          category: formData.category,
+          condition: formData.condition,
+          flat_id: formData.flat_id,
+          purchase_date: formData.purchase_date,
+          purchase_price: formData.purchase_price,
+          unit_rent: formData.unit_rent,
+          total_quantity: formData.total_quantity,
+          available_quantity: formData.total_quantity,
+          is_appliance: formData.is_appliance,
+        });
+
+        if (error) {
+          // Handle potential race condition where item was created between our check and insert
+          if (error.code === "23505") {
+            // Duplicate key error - item already exists
+            // Fetch the existing item and update its quantity
+            const query = supabase
+              .from("furniture_items")
+              .select("*")
+              .eq("name", formData.name)
+              .eq("category", formData.category)
+              .eq("condition", formData.condition);
+            
+            if (formData.flat_id) {
+              query.eq("flat_id", formData.flat_id);
+            } else {
+              query.is("flat_id", null);
+            }
+            
+            const { data: existingItem, error: fetchError } = await query.single();
+            
+            if (fetchError) throw fetchError;
+            
+            const newTotalQuantity = existingItem.total_quantity + formData.total_quantity;
+            const newAvailableQuantity = existingItem.available_quantity + formData.total_quantity;
+            
+            const { error: updateError } = await supabase
+              .from("furniture_items")
+              .update({
+                total_quantity: newTotalQuantity,
+                available_quantity: newAvailableQuantity,
+                purchase_date: formData.purchase_date,
+                purchase_price: formData.purchase_price,
+                unit_rent: formData.unit_rent,
+              })
+              .eq("id", existingItem.id);
+              
+            if (updateError) throw updateError;
+            
+            toast({
+              title: "Item quantity updated",
+              description: `Added ${formData.total_quantity} more ${formData.name}(s) to inventory`,
+            });
+          } else {
+            throw error;
+          }
+        } else {
+          toast({
+            title: "Item added",
+            description: `${formData.name} has been added to inventory`,
+          });
+        }
       }
 
-      if (onOpenChange) onOpenChange(false);
-      if (onItemAdded) onItemAdded();
+      onItemAdded();
+      onOpenChange(false);
     } catch (error: any) {
       toast({
         title: `Error ${isEditMode ? "updating" : "adding"} item`,
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -202,9 +280,9 @@ export default function InventoryForm({
     setFormData((prev) => ({
       ...prev,
       [name]:
-        name === "purchasePrice" || name === "unit_rent"
+        name === "purchase_price" || name === "unit_rent"
           ? parseFloat(value) || 0
-          : name === "total_quantity"
+          : name === "total_quantity" || name === "available_quantity"
           ? parseInt(value) || 1
           : value,
     }));
@@ -215,7 +293,7 @@ export default function InventoryForm({
       setFormData((prev) => ({
         ...prev,
         flat_id: null,
-        flat: null,
+        flat_name: null,
       }));
       return;
     }
@@ -225,7 +303,7 @@ export default function InventoryForm({
       setFormData((prev) => ({
         ...prev,
         flat_id: selectedFlat.id,
-        flat: selectedFlat.name,
+        flat_name: selectedFlat.name,
       }));
     }
   };
@@ -235,13 +313,52 @@ export default function InventoryForm({
       ...prev,
       name: item.name,
       category: item.category,
+      is_appliance: item.category === "Appliance",
     }));
   };
 
-  const getSelectedFlatInfo = () => {
-    if (!formData.flat_id) return "No flat selected";
-    const flatName = formData.flat || "Unknown flat";
-    return `${flatName} (ID: ${formData.flat_id})`;
+  const validateForm = () => {
+    if (!formData.name) {
+      toast({
+        title: "Error",
+        description: "Please enter an item name",
+        variant: "destructive",
+      });
+      return false;
+    }
+    if (!formData.category) {
+      toast({
+        title: "Error",
+        description: "Please select a category",
+        variant: "destructive",
+      });
+      return false;
+    }
+    if (formData.total_quantity < 1) {
+      toast({
+        title: "Error",
+        description: "Quantity must be at least 1",
+        variant: "destructive",
+      });
+      return false;
+    }
+    if (formData.purchase_price < 0) {
+      toast({
+        title: "Error",
+        description: "Purchase price must be positive",
+        variant: "destructive",
+      });
+      return false;
+    }
+    if (formData.unit_rent < 0) {
+      toast({
+        title: "Error",
+        description: "Unit rent must be positive",
+        variant: "destructive",
+      });
+      return false;
+    }
+    return true;
   };
 
   return (
@@ -288,14 +405,23 @@ export default function InventoryForm({
 
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
-                <Input
-                  id="category"
-                  name="category"
+                <Select
                   value={formData.category}
-                  onChange={handleChange}
-                  placeholder="Enter category"
-                  required
-                />
+                  onValueChange={(value) => setFormData(prev => ({
+                    ...prev,
+                    category: value,
+                    is_appliance: value === "Appliance"
+                  }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Furniture">Furniture</SelectItem>
+                    <SelectItem value="Appliance">Appliance</SelectItem>
+                    <SelectItem value="Electronics">Electronics</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
@@ -312,14 +438,16 @@ export default function InventoryForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="purchasePrice">Purchase Price (₹)</Label>
+                <Label htmlFor="purchase_price">Purchase Price (₹)</Label>
                 <Input
-                  id="purchasePrice"
-                  name="purchasePrice"
+                  id="purchase_price"
+                  name="purchase_price"
                   type="number"
-                  value={formData.purchasePrice}
+                  value={formData.purchase_price}
                   onChange={handleChange}
                   placeholder="Enter purchase price"
+                  min="0"
+                  step="0.01"
                   required
                 />
               </div>
@@ -334,17 +462,18 @@ export default function InventoryForm({
                   onChange={handleChange}
                   placeholder="Enter unit rent"
                   min="0"
+                  step="0.01"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="purchaseDate">Purchase Date</Label>
+                <Label htmlFor="purchase_date">Purchase Date</Label>
                 <Input
-                  id="purchaseDate"
-                  name="purchaseDate"
+                  id="purchase_date"
+                  name="purchase_date"
                   type="date"
-                  value={formData.purchaseDate}
+                  value={formData.purchase_date}
                   onChange={handleChange}
                   required
                 />
@@ -353,15 +482,13 @@ export default function InventoryForm({
               <div className="space-y-2">
                 <Label htmlFor="condition">Condition</Label>
                 <Select
-                  value={formData.condition || ""}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      condition: value as "used" | "new" | "damaged",
-                    }))
-                  }
+                  value={formData.condition}
+                  onValueChange={(value) => setFormData(prev => ({
+                    ...prev,
+                    condition: value as "new" | "used" | "damaged"
+                  }))}
                 >
-                  <SelectTrigger id="condition">
+                  <SelectTrigger>
                     <SelectValue placeholder="Select condition" />
                   </SelectTrigger>
                   <SelectContent>
@@ -379,35 +506,30 @@ export default function InventoryForm({
                   onValueChange={handleFlatSelection}
                   disabled={loadingFlats}
                 >
-                  <SelectTrigger id="flat_id">
-                    <SelectValue
-                      placeholder={
-                        loadingFlats
-                          ? "Loading flats..."
-                          : flats.length === 0
-                          ? "No flats available"
-                          : "Select flat"
-                      }
-                    />
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingFlats ? "Loading flats..." : "Select flat"} />
                   </SelectTrigger>
-                  <SelectContent className="max-h-[200px] overflow-y-auto">
-                    {flats.length > 0 ? (
-                      flats.map((flat) => (
-                        <SelectItem key={flat.id} value={flat.id}>
-                          {flat.name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="px-4 py-2 text-sm text-gray-500">
-                        No flats available
-                      </div>
-                    )}
+                  <SelectContent>
+                    <SelectItem value="">Unassigned</SelectItem>
+                    {flats.map((flat) => (
+                      <SelectItem key={flat.id} value={flat.id}>
+                        {flat.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-                <div className="mt-1 text-xs text-gray-500 truncate">
-                  Current selection: {getSelectedFlatInfo()}
-                </div>
               </div>
+
+              {existingItem && !isEditMode && (
+                <div className="col-span-2 p-3 bg-blue-50 rounded-md">
+                  <p className="text-sm text-blue-700">
+                    Existing item found: {existingItem.name} (Quantity: {existingItem.total_quantity})
+                  </p>
+                  <p className="text-sm text-blue-700">
+                    Adding {formData.total_quantity} more will update the total to {existingItem.total_quantity + formData.total_quantity}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -417,8 +539,16 @@ export default function InventoryForm({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={loadingFlats || !formData.flat_id}>
-              {isEditMode ? "Update Item" : "Add Item"}
+            <Button type="submit" disabled={isSubmitting || loadingFlats}>
+              {isSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isEditMode ? (
+                "Update Item"
+              ) : existingItem ? (
+                "Add More"
+              ) : (
+                "Add Item"
+              )}
             </Button>
           </div>
         </form>

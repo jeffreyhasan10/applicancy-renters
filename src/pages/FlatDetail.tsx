@@ -60,30 +60,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { format, subDays } from "date-fns";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import type { Database } from "@/integrations/supabase/types";
 
-interface Flat {
-  id: string;
-  name: string;
-  address: string;
-  monthly_rent_target: number;
-  description: string | null;
-  created_at: string;
-  security_deposit: number | null;
-  tenants: { id: string; name: string; phone: string; email?: string }[] | null;
-  property_documents:
-    | {
-        id: string;
-        file_path: string;
-        name: string;
-        uploaded_at: string | null;
-        document_type: string;
-      }[]
-    | null;
-  property_tags: { id: string; tag_name: string }[] | null;
-}
+type Flat = Database["public"]["Tables"]["flats"]["Row"];
+type MaintenanceRequest = Database["public"]["Tables"]["maintenance_requests"]["Row"];
+type Expense = Database["public"]["Tables"]["expenses"]["Row"];
+type Tenant = Database["public"]["Tables"]["tenants"]["Row"];
+type RentType = Database["public"]["Tables"]["rents"]["Row"];
+
 interface FurnitureItem {
   id: string;
-  flat_id: string;
   name: string;
   unit_rent: number;
   condition: string;
@@ -93,6 +80,8 @@ interface FurnitureItem {
   purchase_price: number;
   category: string;
   is_appliance: boolean;
+  flat_id: string;
+  created_at: string;
 }
 
 interface FurnitureForm {
@@ -114,36 +103,6 @@ interface TenantForm {
   email?: string;
 }
 
-interface MaintenanceRequest {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  created_at: string;
-  tenant?: { id: string; name: string } | null;
-}
-
-interface MaintenanceForm {
-  title: string;
-  description: string;
-  priority: string;
-  tenant_id: string | null;
-}
-
-interface Expense {
-  id: string;
-  flat_id: string;
-  title: string;
-  amount: number;
-  date: string;
-  description: string | null;
-  category: string | null;
-  created_at: string;
-  receipt_id: string | null;
-  receipt?: { id: string; file_path: string; name: string } | null;
-}
-
 interface ExpenseFilter {
   startDate: string;
   endDate: string;
@@ -152,20 +111,15 @@ interface ExpenseFilter {
   maxAmount: string;
 }
 
-interface Rent {
-  id: string;
-  tenant_id: string;
-  due_date: string;
-  amount: number;
-  is_paid: boolean;
-  paid_on: string | null;
-  whatsapp_sent: boolean;
-  tenant?: { id: string; name: string; phone: string };
+interface RentWithRelations extends RentType {
+  tenant?: {
+    id: string;
+    name: string;
+  };
   payment_links?: {
     id: string;
     payment_link: string;
-    status: string;
-    expires_at: string;
+    status: string | null;
   }[];
 }
 
@@ -182,6 +136,36 @@ interface ExpenseForm {
   category: string;
   description?: string;
   receipt?: File;
+}
+
+interface FlatWithRelations extends Flat {
+  description?: string;
+  security_deposit?: number;
+  tenants?: Tenant[];
+  property_documents?: PropertyDocument[];
+  property_photos?: PropertyPhoto[];
+}
+
+interface PropertyDocument {
+  id: string;
+  name: string;
+  document_type: string;
+  file_path: string;
+  uploaded_at: string | null;
+}
+
+interface PropertyPhoto {
+  id: string;
+  file_path: string;
+  description: string | null;
+  uploaded_at: string | null;
+}
+
+interface MaintenanceForm {
+  title: string;
+  description: string;
+  priority: string;
+  tenant_id: string | null;
 }
 
 const fadeIn = {
@@ -312,28 +296,27 @@ const FlatDetail = () => {
     data: flat,
     isLoading,
     error,
-  } = useQuery<Flat, Error>({
+  } = useQuery<FlatWithRelations>({
     queryKey: ["flat", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
       const { data, error } = await typedSupabase
         .from("flats")
-        .select(
-          `
-          id, name, address, monthly_rent_target, description, created_at, security_deposit,
-          tenants (id, name, phone, email),
-          property_documents (id, file_path, name, uploaded_at, document_type),
-          property_tags (id, tag_name)
-        `
-        )
+        .select(`
+          *,
+          tenants (*),
+          property_documents (*),
+          property_photos (*)
+        `)
         .eq("id", id)
         .single();
       if (error) throw new Error(error.message || "Flat not found");
       if (!data) throw new Error("Flat not found");
       return {
         ...data,
+        tenants: data.tenants || [],
         property_documents: data.property_documents || [],
-      } as Flat;
+      };
     },
     enabled: !!id,
   });
@@ -354,9 +337,7 @@ const FlatDetail = () => {
     },
   });
   // Fetch furniture items
-  const { data: furnitureItems, isLoading: furnitureLoading } = useQuery<
-    FurnitureItem[]
-  >({
+  const { data: furnitureItems, isLoading: furnitureLoading } = useQuery<FurnitureItem[]>({
     queryKey: ["furniture_items", id, page],
     queryFn: async () => {
       const { data, error } = await typedSupabase
@@ -366,95 +347,7 @@ const FlatDetail = () => {
         .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
         .order("created_at", { ascending: false });
       if (error) throw new Error(error.message);
-      return data || [];
-    },
-    enabled: !!id,
-  });
-  // Fetch maintenance requests with pagination
-  const { data: maintenanceRequests, isLoading: maintenanceLoading } = useQuery<
-    MaintenanceRequest[]
-  >({
-    queryKey: ["maintenance_requests", id, page],
-    queryFn: async () => {
-      const { data, error } = await typedSupabase
-        .from("maintenance_requests")
-        .select(
-          `
-          id, title, description, status, priority, created_at,
-          tenant:tenants (id, name)
-        `
-        )
-        .eq("flat_id", id)
-        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-        .order("created_at", { ascending: false });
-      if (error) throw new Error(error.message);
-      return data || [];
-    },
-    enabled: !!id,
-  });
-
-  // Fetch expenses with pagination and filters
-  const {
-    data: expenses,
-    isLoading: expensesLoading,
-    refetch: refetchExpenses,
-  } = useQuery<Expense[]>({
-    queryKey: ["expenses", id, page, expenseFilter],
-    queryFn: async () => {
-      let query = typedSupabase
-        .from("expenses")
-        .select(
-          `
-          id, flat_id, title, amount, date, description, category, created_at, receipt_id,
-          receipt:property_documents (id, file_path, name)
-        `
-        )
-        .eq("flat_id", id)
-        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-        .order("date", { ascending: false });
-
-      // Apply filters
-      if (expenseFilter.startDate) {
-        query = query.gte("date", expenseFilter.startDate);
-      }
-      if (expenseFilter.endDate) {
-        query = query.lte("date", expenseFilter.endDate);
-      }
-      if (expenseFilter.category) {
-        query = query.eq("category", expenseFilter.category);
-      }
-      if (expenseFilter.minAmount) {
-        query = query.gte("amount", Number(expenseFilter.minAmount));
-      }
-      if (expenseFilter.maxAmount) {
-        query = query.lte("amount", Number(expenseFilter.maxAmount));
-      }
-
-      const { data, error } = await query;
-      if (error) throw new Error(error.message);
-      return data || [];
-    },
-    enabled: !!id,
-  });
-
-  // Fetch rents with pagination
-  const { data: rents, isLoading: rentsLoading } = useQuery<Rent[]>({
-    queryKey: ["rents", id, page],
-    queryFn: async () => {
-      const { data, error } = await typedSupabase
-        .from("rents")
-        .select(
-          `
-        id, tenant_id, due_date, amount, is_paid, paid_on, whatsapp_sent,
-        tenant:tenants(id, name, phone, flat_id),
-        payment_links(id, payment_link, status, expires_at)
-      `
-        )
-        .eq("tenant.flat_id", id)
-        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-        .order("due_date", { ascending: false });
-      if (error) throw new Error(error.message);
-      return data || [];
+      return (data || []) as FurnitureItem[];
     },
     enabled: !!id,
   });
@@ -1062,6 +955,70 @@ const FlatDetail = () => {
     }
   };
 
+  // Add maintenance requests query
+  const {
+    data: maintenanceRequests,
+    isLoading: maintenanceLoading,
+  } = useQuery({
+    queryKey: ["maintenance_requests", id],
+    queryFn: async () => {
+      if (!id) throw new Error("Flat ID is required");
+      const { data, error } = await typedSupabase
+        .from("maintenance_requests")
+        .select(`
+          *,
+          tenant:tenants(id, name)
+        `)
+        .eq("flat_id", id)
+        .order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!id,
+  });
+
+  // Add expenses query
+  const {
+    data: expenses,
+    isLoading: expensesLoading,
+  } = useQuery({
+    queryKey: ["expenses", id],
+    queryFn: async () => {
+      if (!id) throw new Error("Flat ID is required");
+      const { data, error } = await typedSupabase
+        .from("expenses")
+        .select("*")
+        .eq("flat_id", id)
+        .order("date", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!id,
+  });
+
+  // Add rents query
+  const {
+    data: rents,
+    isLoading: rentsLoading,
+  } = useQuery({
+    queryKey: ["rents", id],
+    queryFn: async () => {
+      if (!id) throw new Error("Flat ID is required");
+      const { data, error } = await typedSupabase
+        .from("rents")
+        .select(`
+          *,
+          tenant:tenants(id, name),
+          payment_links(*)
+        `)
+        .eq("tenant.flat_id", id)
+        .order("due_date", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!id,
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-luxury-softwhite to-luxury-cream px-4">
@@ -1122,19 +1079,19 @@ const FlatDetail = () => {
   }
 
   return (
-    <div
-      className="w-full min-h-screen bg-luxury-softwhite px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 overflow-x-hidden"
+    <div 
+      className="w-full min-h-screen bg-luxury-softwhite px-2 sm:px-4 lg:px-8 py-2 sm:py-4 lg:py-8 overflow-x-hidden"
       role="main"
       aria-label="Property Details"
     >
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-luxury-cream">
-        <div className="flex items-center gap-4">
+      {/* Header Section - Make more mobile friendly */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-6 pb-4 border-b border-luxury-cream">
+        <div className="flex items-center gap-2 sm:gap-4">
           <Link to="/flats">
             <Button
               variant="outline"
               size="icon"
-              className="h-9 w-9 sm:h-10 sm:w-10 border-luxury-cream hover:bg-luxury-gold/20 rounded-full"
+              className="h-8 w-8 sm:h-10 sm:w-10 border-luxury-cream hover:bg-luxury-gold/20 rounded-full"
               aria-label="Back to properties"
             >
               <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 text-luxury-charcoal" />
@@ -1142,7 +1099,7 @@ const FlatDetail = () => {
           </Link>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl sm:text-3xl font-semibold text-luxury-charcoal">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold text-luxury-charcoal">
                 {flat.name}
               </h1>
               {renderAvailabilityBadge()}
@@ -1157,13 +1114,13 @@ const FlatDetail = () => {
           <Button
             variant="outline"
             onClick={() => setEditOpen(true)}
-            className="w-full sm:w-auto border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal"
+            className="w-full sm:w-auto border-luxury-cream hover:bg-luxury-gold/20 text-luxury-charcoal text-sm flex items-center transition-colors duration-200"
             aria-label="Edit property"
           >
             <Edit className="h-4 w-4 mr-2" /> Edit
           </Button>
           <Button
-            className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+            className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 text-sm flex items-center"
             onClick={() => handleTabChange("tenants")}
             aria-label="Manage tenants"
           >
@@ -1174,65 +1131,96 @@ const FlatDetail = () => {
           </Button>
         </div>
       </div>
-      {/* Tabs Navigation */}
+
+      {/* Tabs Navigation - Make scrollable on mobile */}
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
         className="w-full"
         aria-label="Property tabs"
       >
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 mb-6 sm:mb-8 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1 gap-1 overflow-x-auto">
-          {" "}
-          <TabsTrigger
-            value="details"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Overview
-          </TabsTrigger>
-          <TabsTrigger
-            value="tenants"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Tenants {flat.tenants?.length ? `(${flat.tenants.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger
-            value="documents"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Documents{" "}
-            {flat.property_documents?.length
-              ? `(${flat.property_documents.length})`
-              : "(0)"}
-          </TabsTrigger>
-          <TabsTrigger
-            value="rents"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Rent Collection
-          </TabsTrigger>
-          <TabsTrigger
-            value="furniture"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Furniture{" "}
-            {furnitureItems?.length ? `(${furnitureItems.length})` : ""}
-          </TabsTrigger>
-          <TabsTrigger
-            value="maintenance"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Maintenance{" "}
-            {maintenanceRequests?.length
-              ? `(${maintenanceRequests.length})`
-              : ""}
-          </TabsTrigger>
-          <TabsTrigger
-            value="expenses"
-            className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm sm:text-base whitespace-nowrap"
-          >
-            Expenses {expenses?.length ? `(${expenses.length})` : ""}
-          </TabsTrigger>
-        </TabsList>
+        <div className="relative">
+          <ScrollArea className="w-full">
+            <TabsList className="inline-flex w-auto min-w-full sm:w-full mb-4 sm:mb-6 bg-luxury-cream/30 rounded-full border border-luxury-cream p-1 gap-1">
+              <TabsTrigger
+                value="details"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Overview
+              </TabsTrigger>
+              <TabsTrigger
+                value="tenants"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Tenants {flat.tenants?.length ? `(${flat.tenants.length})` : ""}
+              </TabsTrigger>
+              <TabsTrigger
+                value="documents"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Documents{" "}
+                {flat.property_documents?.length
+                  ? `(${flat.property_documents.length})`
+                  : "(0)"}
+              </TabsTrigger>
+              <TabsTrigger
+                value="rents"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Rent Collection
+              </TabsTrigger>
+              <TabsTrigger
+                value="furniture"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Furniture{" "}
+                {furnitureItems?.length ? `(${furnitureItems.length})` : ""}
+              </TabsTrigger>
+              <TabsTrigger
+                value="maintenance"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Maintenance{" "}
+                {maintenanceRequests?.length
+                  ? `(${maintenanceRequests.length})`
+                  : ""}
+              </TabsTrigger>
+              <TabsTrigger
+                value="expenses"
+                className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm text-luxury-charcoal text-sm whitespace-nowrap px-3 py-1.5"
+              >
+                Expenses {expenses?.length ? `(${expenses.length})` : ""}
+              </TabsTrigger>
+            </TabsList>
+            <ScrollBar orientation="horizontal" className="h-2 bg-luxury-cream/20" />
+          </ScrollArea>
+        </div>
+
+        {/* Edit Dialog */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
+            <DialogHeader>
+              <DialogTitle className="text-2xl text-luxury-charcoal">
+                Edit Property
+              </DialogTitle>
+            </DialogHeader>
+            <FlatForm 
+              flat={flat}
+              open={editOpen}
+              onOpenChange={setEditOpen}
+              onSuccess={() => {
+                setEditOpen(false);
+                queryClient.invalidateQueries({ queryKey: ["flat", id] });
+                queryClient.invalidateQueries({ queryKey: ["flats"] });
+                toast({
+                  title: "Success",
+                  description: "Property updated successfully",
+                  className: "bg-luxury-gold text-luxury-charcoal border-none",
+                });
+              }}
+            />
+          </DialogContent>
+        </Dialog>
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -1244,7 +1232,7 @@ const FlatDetail = () => {
           >
             <TabsContent value="details" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg overflow-hidden">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <div className="flex items-center justify-between">
@@ -1362,7 +1350,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg h-full">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -1447,7 +1435,7 @@ const FlatDetail = () => {
             </TabsContent>
             <TabsContent value="furniture" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -1460,7 +1448,7 @@ const FlatDetail = () => {
                     </CardContent>
                   </Card>
                 </div>
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -1527,7 +1515,7 @@ const FlatDetail = () => {
 
             <TabsContent value="tenants" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <div className="flex items-center justify-between">
@@ -1724,7 +1712,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -1837,7 +1825,7 @@ const FlatDetail = () => {
 
             <TabsContent value="documents" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <div className="flex items-center justify-between">
@@ -2002,7 +1990,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -2127,7 +2115,7 @@ const FlatDetail = () => {
 
             <TabsContent value="rents" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -2398,7 +2386,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -2464,7 +2452,7 @@ const FlatDetail = () => {
 
             <TabsContent value="maintenance" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <div className="flex items-center justify-between">
@@ -2616,7 +2604,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -2682,7 +2670,7 @@ const FlatDetail = () => {
 
             <TabsContent value="expenses" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
                       <div className="flex items-center justify-between">
@@ -2821,7 +2809,7 @@ const FlatDetail = () => {
                   </Card>
                 </div>
 
-                <div>
+                <div className="space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite">
                       <CardTitle className="text-xl text-luxury-charcoal flex items-center">
@@ -3158,8 +3146,10 @@ const FlatDetail = () => {
               Edit Property
             </DialogTitle>
           </DialogHeader>
-          <FlatForm
+          <FlatForm 
             flat={flat}
+            open={editOpen}
+            onOpenChange={setEditOpen}
             onSuccess={() => {
               setEditOpen(false);
               queryClient.invalidateQueries({ queryKey: ["flat", id] });
@@ -3777,9 +3767,9 @@ const FlatDetail = () => {
             }}
             className="space-y-6"
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <Label htmlFor="title" className="text-luxury-charcoal">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="sm:col-span-2">
+                <Label htmlFor="title" className="text-luxury-charcoal text-sm">
                   Title
                 </Label>
                 <Input
@@ -3789,12 +3779,12 @@ const FlatDetail = () => {
                     setExpenseForm({ ...expenseForm, title: e.target.value })
                   }
                   required
-                  className="border-luxury-cream focus:ring-luxury-gold"
+                  className="border-luxury-cream focus:ring-luxury-gold mt-1"
                   placeholder="Enter expense title"
                 />
               </div>
               <div>
-                <Label htmlFor="amount" className="text-luxury-charcoal">
+                <Label htmlFor="amount" className="text-luxury-charcoal text-sm">
                   Amount
                 </Label>
                 <Input
@@ -3805,12 +3795,12 @@ const FlatDetail = () => {
                     setExpenseForm({ ...expenseForm, amount: e.target.value })
                   }
                   required
-                  className="border-luxury-cream focus:ring-luxury-gold"
+                  className="border-luxury-cream focus:ring-luxury-gold mt-1"
                   placeholder="Enter amount"
                 />
               </div>
               <div>
-                <Label htmlFor="date" className="text-luxury-charcoal">
+                <Label htmlFor="date" className="text-luxury-charcoal text-sm">
                   Date
                 </Label>
                 <Input
@@ -3821,11 +3811,11 @@ const FlatDetail = () => {
                     setExpenseForm({ ...expenseForm, date: e.target.value })
                   }
                   required
-                  className="border-luxury-cream focus:ring-luxury-gold"
+                  className="border-luxury-cream focus:ring-luxury-gold mt-1"
                 />
               </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="category" className="text-luxury-charcoal">
+              <div className="sm:col-span-2">
+                <Label htmlFor="category" className="text-luxury-charcoal text-sm">
                   Category
                 </Label>
                 <Select
@@ -3850,8 +3840,8 @@ const FlatDetail = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="description" className="text-luxury-charcoal">
+              <div className="sm:col-span-2">
+                <Label htmlFor="description" className="text-luxury-charcoal text-sm">
                   Description (Optional)
                 </Label>
                 <Textarea
@@ -3863,12 +3853,12 @@ const FlatDetail = () => {
                       description: e.target.value,
                     })
                   }
-                  className="border-luxury-cream focus:ring-luxury-gold"
+                  className="border-luxury-cream focus:ring-luxury-gold mt-1"
                   placeholder="Enter expense description"
                 />
               </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="receipt" className="text-luxury-charcoal">
+              <div className="sm:col-span-2">
+                <Label htmlFor="receipt" className="text-luxury-charcoal text-sm">
                   Receipt (Optional)
                 </Label>
                 <Input
@@ -3878,7 +3868,7 @@ const FlatDetail = () => {
                   onChange={(e) =>
                     setExpenseReceipt(e.target.files ? e.target.files[0] : null)
                   }
-                  className="border-luxury-cream focus:ring-luxury-gold"
+                  className="border-luxury-cream focus:ring-luxury-gold mt-1"
                 />
               </div>
             </div>
