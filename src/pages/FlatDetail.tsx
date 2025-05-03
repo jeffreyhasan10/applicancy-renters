@@ -22,6 +22,7 @@ import {
   Link as LinkIcon,
   Filter,
   DollarSign,
+  Copy,
 } from "lucide-react";
 import {
   Card,
@@ -65,9 +66,19 @@ import type { Database } from "@/integrations/supabase/types";
 
 type Flat = Database["public"]["Tables"]["flats"]["Row"];
 type MaintenanceRequest = Database["public"]["Tables"]["maintenance_requests"]["Row"];
-type Expense = Database["public"]["Tables"]["expenses"]["Row"];
+type Expense = Database["public"]["Tables"]["expenses"]["Row"] & {
+  receipt?: {
+    file_path: string;
+  };
+};
 type Tenant = Database["public"]["Tables"]["tenants"]["Row"];
-type RentType = Database["public"]["Tables"]["rents"]["Row"];
+type RentType = Database["public"]["Tables"]["rents"]["Row"] & {
+  payment_links?: {
+    id: string;
+    payment_link: string;
+    status: string | null;
+  }[];
+};
 
 interface FurnitureItem {
   id: string;
@@ -138,12 +149,21 @@ interface ExpenseForm {
   receipt?: File;
 }
 
-interface FlatWithRelations extends Flat {
-  description?: string;
+interface FlatWithRelations {
+  id: string;
+  name: string;
+  address: string;
+  monthly_rent_target: number;
+  created_at: string;
+  description: string | null;
   security_deposit?: number;
   tenants?: Tenant[];
   property_documents?: PropertyDocument[];
   property_photos?: PropertyPhoto[];
+  property_tags?: {
+    id: string;
+    tag_name: string;
+  }[];
 }
 
 interface PropertyDocument {
@@ -177,41 +197,13 @@ const FlatDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const itemsPerPage = 10;
+  
+  // State declarations
+  const [activeTab, setActiveTab] = useState("details");
+  const [page, setPage] = useState(1);
   const [editOpen, setEditOpen] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
-  const [expenseForm, setExpenseForm] = useState<ExpenseForm>({
-    title: "",
-    amount: "",
-    date: format(new Date(), "yyyy-MM-dd"),
-    category: "",
-    description: "",
-  });
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(currentYear.toString());
-  const generateMonthlyFilters = (year) => {
-    const months = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-    return months.map((month) => ({
-      month: `${month} ${year}`,
-      status: "all",
-    }));
-  };
-  const [monthlyStatusFilters, setMonthlyStatusFilters] = useState(
-    generateMonthlyFilters(currentYear)
-  );
-  const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null);
   const [addTenantOpen, setAddTenantOpen] = useState(false);
   const [assignTenantOpen, setAssignTenantOpen] = useState(false);
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
@@ -221,20 +213,26 @@ const FlatDetail = () => {
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [addFurnitureOpen, setAddFurnitureOpen] = useState(false);
   const [addTenantFurnitureOpen, setAddTenantFurnitureOpen] = useState(false);
-  const [furnitureForm, setFurnitureForm] = useState<FurnitureForm>({
-    name: "",
-    unit_rent: "",
-  });
-  const [tenantFurnitureForm, setTenantFurnitureForm] =
-    useState<TenantFurnitureForm>({
-      furniture_item_id: "",
-      category: "",
-      assigned_quantity: "1",
-      purchase_price: "",
-      purchase_date: format(new Date(), "yyyy-MM-dd"),
-      condition: "new",
-    });
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docName, setDocName] = useState<string>("");
+  const [docType, setDocType] = useState<string>("other");
+  const [selectedTenant, setSelectedTenant] = useState<string>("");
+  const [expenseForm, setExpenseForm] = useState<ExpenseForm>({
+    title: "",
+    amount: "",
+    date: format(new Date(), "yyyy-MM-dd"),
+    category: "",
+    description: "",
+  });
+  const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null);
+  const [rentAmount, setRentAmount] = useState<string>("");
+  const [rentDescription, setRentDescription] = useState<string>("Rent Payment");
+  const [expiryDays, setExpiryDays] = useState<string>("7");
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
+  const [paymentLinksData, setPaymentLinksData] = useState<PaymentLinkData[]>([]);
+  const [rentStatusFilter, setRentStatusFilter] = useState("all");
+  const [tenantPhoto, setTenantPhoto] = useState<File | null>(null);
   const [tenantForm, setTenantForm] = useState<TenantForm>({
     name: "",
     phone: "",
@@ -246,52 +244,27 @@ const FlatDetail = () => {
     priority: "medium",
     tenant_id: null,
   });
-  const [expenseFilter, setExpenseFilter] = useState<ExpenseFilter>({
-    startDate: format(subDays(new Date(), 30), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
-    category: "",
-    minAmount: "",
-    maxAmount: "",
+  const [furnitureForm, setFurnitureForm] = useState<FurnitureForm>({
+    name: "",
+    unit_rent: "",
   });
-  const [selectedTenant, setSelectedTenant] = useState<string>("");
-  const [docFile, setDocFile] = useState<File | null>(null);
-  const [docName, setDocName] = useState<string>("");
-  useEffect(() => {
-    setMonthlyStatusFilters(generateMonthlyFilters(Number(selectedYear)));
-    setPage(1);
-  }, [selectedYear]);
-  const [tenantPhoto, setTenantPhoto] = useState<File | null>(null);
-  const [docType, setDocType] = useState<string>("other");
-  const [activeTab, setActiveTab] = useState("details");
-  const [paymentLinksData, setPaymentLinksData] = useState<PaymentLinkData[]>(
-    []
-  );
-  const [rentAmount, setRentAmount] = useState<string>("");
-  const [rentDescription, setRentDescription] =
-    useState<string>("Rent Payment");
-  const [expiryDays, setExpiryDays] = useState<string>("7");
-  const [page, setPage] = useState(1);
-  const itemsPerPage = 10;
+  const [tenantFurnitureForm, setTenantFurnitureForm] = useState<TenantFurnitureForm>({
+    furniture_item_id: "",
+    category: "",
+    assigned_quantity: "1",
+    purchase_price: "",
+    purchase_date: format(new Date(), "yyyy-MM-dd"),
+    condition: "new",
+  });
+  const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), "yyyy-MM"));
 
-  // Refetch flat details when dialogs are closed
-  useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ["flat", id] });
-  }, [
-    editOpen,
-    addTenantOpen,
-    assignTenantOpen,
-    uploadDocOpen,
-    deleteDocOpen,
-    createMaintenanceOpen,
-    sendPaymentLinksOpen,
-  ]);
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
+  // Tab change handler
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
     setPage(1);
   };
 
-  // Fetch flat data
+  // Fetch flat data first
   const {
     data: flat,
     isLoading,
@@ -316,10 +289,37 @@ const FlatDetail = () => {
         ...data,
         tenants: data.tenants || [],
         property_documents: data.property_documents || [],
+        property_photos: data.property_photos || [],
+        description: data.description || null,
+        security_deposit: data.security_deposit || 0,
       };
     },
     enabled: !!id,
   });
+
+  // Then use flat in effects
+  useEffect(() => {
+    if (sendPaymentLinksOpen && flat?.monthly_rent_target) {
+      setRentAmount(flat.monthly_rent_target.toString());
+    }
+  }, [sendPaymentLinksOpen, flat?.monthly_rent_target]);
+
+  // Refetch flat details when dialogs are closed
+  useEffect(() => {
+    if (id) {
+      queryClient.invalidateQueries({ queryKey: ["flat", id] });
+    }
+  }, [
+    id,
+    queryClient,
+    editOpen,
+    addTenantOpen,
+    assignTenantOpen,
+    uploadDocOpen,
+    deleteDocOpen,
+    createMaintenanceOpen,
+    sendPaymentLinksOpen,
+  ]);
 
   // Fetch available tenants
   const { data: availableTenants, isLoading: tenantsLoading } = useQuery<
@@ -777,6 +777,7 @@ const FlatDetail = () => {
           .from("rents")
           .insert({
             tenant_id: tenant.id,
+            flat_id: id,
             amount,
             due_date: new Date().toISOString().split("T")[0],
             is_paid: false,
@@ -1019,6 +1020,61 @@ const FlatDetail = () => {
     enabled: !!id,
   });
 
+  // Add the delete rent mutation
+  const deleteRentMutation = useMutation({
+    mutationFn: async (rentId: string) => {
+      const { error } = await typedSupabase
+        .from("rents")
+        .delete()
+        .eq("id", rentId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rents", id] });
+      toast({
+        title: "Success",
+        description: "Rent record deleted successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to delete rent record",
+      });
+    },
+  });
+
+  // Add the update rent status mutation
+  const updateRentStatusMutation = useMutation({
+    mutationFn: async ({ rentId, isPaid }: { rentId: string; isPaid: boolean }) => {
+      const { error } = await typedSupabase
+        .from("rents")
+        .update({
+          is_paid: isPaid,
+          paid_on: isPaid ? new Date().toISOString().split("T")[0] : null,
+        })
+        .eq("id", rentId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rents", id] });
+      toast({
+        title: "Success",
+        description: "Rent status updated successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update rent status",
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-luxury-softwhite to-luxury-cream px-4">
@@ -1205,9 +1261,17 @@ const FlatDetail = () => {
               </DialogTitle>
             </DialogHeader>
             <FlatForm 
-              flat={flat}
               open={editOpen}
               onOpenChange={setEditOpen}
+              flat={{
+                id: flat.id,
+                name: flat.name,
+                address: flat.address,
+                monthly_rent_target: flat.monthly_rent_target,
+                created_at: flat.created_at,
+                description: flat.description || "",
+                security_deposit: flat.security_deposit || 0,
+              }}
               onSuccess={() => {
                 setEditOpen(false);
                 queryClient.invalidateQueries({ queryKey: ["flat", id] });
@@ -2118,113 +2182,39 @@ const FlatDetail = () => {
                 <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
-                      <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                        <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
-                        Rent Collection
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      {/* Monthly Rent Collection Status */}
-                      <div className="mb-6 p-4 bg-luxury-cream/20 border border-luxury-cream rounded-lg">
-                        <h3 className="text-lg font-medium text-luxury-charcoal mb-4 flex items-center">
-                          <Filter className="h-4 w-4 mr-2" />
-                          Monthly Rent Collection Status
-                        </h3>
-                        <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-4">
-                          <div className="w-full sm:w-48">
-                            <Label
-                              htmlFor="year-select"
-                              className="text-luxury-charcoal"
-                            >
-                              Select Year
-                            </Label>
-                            <Select
-                              value={selectedYear}
-                              onValueChange={(value) => setSelectedYear(value)}
-                            >
-                              <SelectTrigger
-                                id="year-select"
-                                className="border-luxury-cream focus:ring-luxury-gold"
-                              >
-                                <SelectValue placeholder="Select year" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {[...Array(10)].map((_, i) => {
-                                  const year = currentYear - 5 + i;
-                                  return (
-                                    <SelectItem
-                                      key={year}
-                                      value={year.toString()}
-                                    >
-                                      {year}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                          <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Rent Collection
+                        </CardTitle>
+                        <div className="flex space-x-2">
+                          <div className="flex items-center space-x-2">
+                            <Label htmlFor="month-filter" className="text-sm">Month:</Label>
+                            <Input
+                              id="month-filter"
+                              type="month"
+                              value={selectedMonth}
+                              onChange={(e) => setSelectedMonth(e.target.value)}
+                              className="w-36"
+                            />
                           </div>
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setMonthlyStatusFilters(
-                                generateMonthlyFilters(Number(selectedYear))
-                              );
-                              setPage(1);
-                            }}
-                            className="border-luxury-cream hover:bg-luxury-gold/20"
-                            aria-label="Reset filters"
+                          <Select 
+                            value={rentStatusFilter}
+                            onValueChange={setRentStatusFilter}
                           >
-                            Reset Filters
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                          {monthlyStatusFilters.map((monthStatus, index) => (
-                            <div
-                              key={monthStatus.month}
-                              className="flex flex-col"
-                            >
-                              <Label
-                                htmlFor={`month-status-${index}`}
-                                className="text-luxury-charcoal text-sm mb-1"
-                              >
-                                {monthStatus.month.split(" ")[0]}
-                              </Label>
-                              <Select
-                                value={monthStatus.status}
-                                onValueChange={(value) => {
-                                  const updatedFilters = [
-                                    ...monthlyStatusFilters,
-                                  ];
-                                  updatedFilters[index] = {
-                                    ...monthStatus,
-                                    status: value,
-                                  };
-                                  setMonthlyStatusFilters(updatedFilters);
-                                  setPage(1);
-                                }}
-                              >
-                                <SelectTrigger
-                                  id={`month-status-${index}`}
-                                  className="border-luxury-cream focus:ring-luxury-gold h-9 text-sm"
-                                >
-                                  <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="all">All</SelectItem>
-                                  <SelectItem value="received">
-                                    Received
-                                  </SelectItem>
-                                  <SelectItem value="pending">
-                                    Pending
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          ))}
+                            <SelectTrigger className="w-[140px]">
+                              <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All</SelectItem>
+                              <SelectItem value="paid">Paid</SelectItem>
+                              <SelectItem value="unpaid">Unpaid</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
-
-                      {/* Existing rents list */}
+                    </CardHeader>
+                    <CardContent className="p-6">
                       {rentsLoading ? (
                         <div className="space-y-4">
                           {[...Array(3)].map((_, i) => (
@@ -2235,111 +2225,83 @@ const FlatDetail = () => {
                               <div className="space-y-2">
                                 <div className="h-4 bg-luxury-cream/50 rounded w-3/4"></div>
                                 <div className="h-3 bg-luxury-cream/50 rounded w-1/2"></div>
-                                <div className="h-3 bg-luxury-cream/50 rounded w-1/3"></div>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : rents && rents.length > 0 ? (
                         <ul className="space-y-6">
-                          {rents.map((rent) => (
-                            <li
-                              key={rent.id}
-                              className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
-                            >
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                <div>
-                                  <h3 className="font-medium text-luxury-charcoal">
-                                    {rent.tenant?.name || "Unknown Tenant"}
-                                  </h3>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Due:{" "}
-                                    {rent.due_date
-                                      ? new Date(
-                                          rent.due_date
-                                        ).toLocaleDateString()
-                                      : "N/A"}
-                                  </p>
-                                  <p className="text-sm text-luxury-charcoal/70">
-                                    Amount: ₹{rent.amount.toLocaleString()}
-                                  </p>
-                                  {rent.payment_links &&
-                                    rent.payment_links.length > 0 && (
-                                      <div className="mt-2">
-                                        <p className="text-sm text-luxury-charcoal/70">
-                                          Payment Link:
-                                        </p>
-                                        {rent.payment_links.map((link) => (
-                                          <div
-                                            key={link.id}
-                                            className="flex items-center space-x-2 mt-1"
-                                          >
-                                            <a
-                                              href={link.payment_link}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-luxury-gold hover:underline text-sm truncate max-w-xs"
-                                              aria-label="Open payment link"
-                                            >
-                                              {link.payment_link.substring(
-                                                0,
-                                                30
-                                              )}
-                                              ...
-                                            </a>
-                                            <Badge
-                                              variant={
-                                                link.status === "active"
-                                                  ? "default"
-                                                  : link.status === "completed"
-                                                  ? "secondary"
-                                                  : "destructive"
-                                              }
-                                              className={
-                                                link.status === "active"
-                                                  ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                                                  : link.status === "completed"
-                                                  ? "bg-blue-50 text-blue-600 border-blue-200"
-                                                  : "bg-red-50 text-red-600 border-red-200"
-                                              }
-                                            >
-                                              {link.status}
-                                            </Badge>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                </div>
-                                <div className="flex items-center space-x-2 mt-4 sm:mt-0">
-                                  <Badge
-                                    variant={
-                                      rent.is_paid ? "default" : "destructive"
-                                    }
-                                    className={
-                                      rent.is_paid
-                                        ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                                        : "bg-red-50 text-red-600 border-red-200"
-                                    }
-                                  >
-                                    {rent.is_paid ? "Paid" : "Unpaid"}
-                                  </Badge>
-                                  {rent.is_paid && rent.paid_on && (
+                          {rents
+                            .filter(rent => {
+                              // Filter by month
+                              const rentMonth = format(new Date(rent.due_date), "yyyy-MM");
+                              const monthMatch = selectedMonth ? rentMonth === selectedMonth : true;
+                              
+                              // Filter by status
+                              const statusMatch = rentStatusFilter === "all" 
+                                ? true 
+                                : rentStatusFilter === "paid" 
+                                  ? rent.is_paid 
+                                  : !rent.is_paid;
+                              
+                              return monthMatch && statusMatch;
+                            })
+                            .map((rent) => (
+                              <li
+                                key={rent.id}
+                                className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                                  <div>
+                                    <h3 className="font-medium text-luxury-charcoal">
+                                      {rent.tenant?.name || "Unknown Tenant"}
+                                    </h3>
                                     <p className="text-sm text-luxury-charcoal/70">
-                                      Paid on:{" "}
-                                      {new Date(
-                                        rent.paid_on
-                                      ).toLocaleDateString()}
+                                      Due: {format(new Date(rent.due_date), "dd MMM yyyy")}
                                     </p>
-                                  )}
-                                  {rent.whatsapp_sent && (
-                                    <Badge className="bg-luxury-gold/20 text-luxury-charcoal">
-                                      WhatsApp Sent
-                                    </Badge>
-                                  )}
+                                    <p className="text-sm text-luxury-charcoal/70">
+                                      Amount: ₹{rent.amount.toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                    <Button
+                                      variant={rent.is_paid ? "destructive" : "default"}
+                                      size="sm"
+                                      onClick={() => updateRentStatusMutation.mutate({
+                                        rentId: rent.id,
+                                        isPaid: !rent.is_paid,
+                                      })}
+                                      className={rent.is_paid 
+                                        ? "bg-red-100 text-red-600 hover:bg-red-200"
+                                        : "bg-emerald-100 text-emerald-600 hover:bg-emerald-200"
+                                      }
+                                    >
+                                      {rent.is_paid ? "Mark Unpaid" : "Mark Paid"}
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => {
+                                        if (confirm("Are you sure you want to delete this rent record?")) {
+                                          deleteRentMutation.mutate(rent.id);
+                                        }
+                                      }}
+                                      className="bg-red-500 hover:bg-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                    {rent.tenant?.phone && (
+                                      <WhatsAppIntegration
+                                        phone={rent.tenant.phone}
+                                        message={`Dear ${rent.tenant.name}, your rent payment of ₹${rent.amount.toLocaleString()} was due on ${format(new Date(rent.due_date), "dd MMM yyyy")}. Please make the payment at your earliest convenience.`}
+                                        buttonLabel="Send Reminder"
+                                        buttonClassName="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                                      />
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            </li>
-                          ))}
+                              </li>
+                            ))}
                         </ul>
                       ) : (
                         <div className="text-center py-16 border border-dashed border-luxury-cream rounded-lg">
@@ -2353,7 +2315,6 @@ const FlatDetail = () => {
                           <Button
                             onClick={() => setSendPaymentLinksOpen(true)}
                             className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                            aria-label="Create rent invoice"
                           >
                             <FilePlus className="h-4 w-4 mr-2" />
                             Create Rent Invoice
@@ -2361,28 +2322,6 @@ const FlatDetail = () => {
                         </div>
                       )}
                     </CardContent>
-                    {rents && rents.length > itemsPerPage && (
-                      <CardFooter className="p-6 border-t border-luxury-cream flex justify-between">
-                        <Button
-                          variant="outline"
-                          disabled={page === 1}
-                          onClick={() => setPage((p) => p - 1)}
-                          className="border-luxury-cream hover:bg-luxury-gold/20"
-                          aria-label="Previous page"
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          disabled={rents.length <= page * itemsPerPage}
-                          onClick={() => setPage((p) => p + 1)}
-                          className="border-luxury-cream hover:bg-luxury-gold/20"
-                          aria-label="Next page"
-                        >
-                          Next
-                        </Button>
-                      </CardFooter>
-                    )}
                   </Card>
                 </div>
 
@@ -3581,62 +3520,91 @@ const FlatDetail = () => {
           }
         }}
       >
-        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-lg mx-auto p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-2xl text-luxury-charcoal">
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] sm:w-[85vw] md:w-[75vw] lg:w-[65vw] max-w-2xl mx-auto p-4 sm:p-6">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-xl sm:text-2xl text-luxury-charcoal">
               Send Payment Links
             </DialogTitle>
+            <DialogDescription className="text-luxury-charcoal/70">
+              Generate and send payment links to your tenants for rent collection.
+            </DialogDescription>
           </DialogHeader>
           {paymentLinksData.length > 0 ? (
             <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-luxury-charcoal">
+              <div className="mt-4">
+                <h3 className="text-lg font-medium text-luxury-charcoal mb-2">
                   Generated Payment Links
                 </h3>
-                <ul className="space-y-4 mt-4">
-                  {paymentLinksData.map((linkData) => {
-                    const tenant = flat.tenants?.find(
-                      (t) => t.id === linkData.tenant_id
-                    );
-                    return (
-                      <li
-                        key={linkData.id}
-                        className="border border-luxury-cream rounded-lg p-4"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-luxury-charcoal">
-                              {tenant?.name || "Unknown Tenant"}
-                            </p>
-                            <a
-                              href={linkData.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-luxury-gold hover:underline text-sm truncate max-w-xs"
-                            >
-                              {linkData.link}
-                            </a>
+                <p className="text-sm text-luxury-charcoal/70 mb-4">
+                  Share these payment links with your tenants via WhatsApp or copy the links directly.
+                </p>
+                <div className="max-h-[60vh] overflow-y-auto pr-2">
+                  <ul className="space-y-4">
+                    {paymentLinksData.map((linkData) => {
+                      const tenant = flat.tenants?.find(
+                        (t) => t.id === linkData.tenant_id
+                      );
+                      return (
+                        <li
+                          key={linkData.id}
+                          className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/5 transition-colors"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="space-y-2">
+                              <p className="font-medium text-luxury-charcoal">
+                                {tenant?.name || "Unknown Tenant"}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <a
+                                  href={linkData.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-luxury-gold hover:underline text-sm truncate max-w-[240px] sm:max-w-[300px]"
+                                >
+                                  {linkData.link}
+                                </a>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 border-luxury-cream hover:bg-luxury-gold/10"
+                                  onClick={() => navigator.clipboard.writeText(linkData.link)}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                            <WhatsAppIntegration
+                              phone={tenant?.phone || ""}
+                              message={`Dear ${tenant?.name}, please pay your rent of ₹${rentAmount} for ${flat.name}. Use this link: ${linkData.link}`}
+                              buttonLabel="Send via WhatsApp"
+                              buttonClassName="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 whitespace-nowrap"
+                            />
                           </div>
-                          <WhatsAppIntegration
-                            phone={tenant?.phone || ""}
-                            message={`Dear ${tenant?.name}, please pay your rent of ₹${rentAmount} for ${flat.name}. Use this link: ${linkData.link}`}
-                            buttonLabel="Send via WhatsApp"
-                            buttonClassName="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
-                          />
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="sm:justify-between gap-4">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setConfirmCloseOpen(true)}
-                  className="border-luxury-cream hover:bg-luxury-cream/20"
+                  className="w-full sm:w-auto border-luxury-cream hover:bg-luxury-cream/20"
                 >
                   Close
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setSendPaymentLinksOpen(false);
+                    setPaymentLinksData([]);
+                  }}
+                  className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                >
+                  Generate New Links
                 </Button>
               </DialogFooter>
             </div>
@@ -3644,70 +3612,84 @@ const FlatDetail = () => {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                if (parseFloat(rentAmount) !== flat.monthly_rent_target) {
+                  toast({
+                    title: "Invalid Amount",
+                    description: `Rent amount must match the monthly target of ₹${flat.monthly_rent_target}`,
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 createPaymentLinksMutation.mutate({
                   amount: Number(rentAmount),
                   description: rentDescription,
                   expiryDays: Number(expiryDays),
                 });
               }}
-              className="space-y-6"
+              className="space-y-6 mt-4"
             >
-              <div>
-                <Label htmlFor="rentAmount" className="text-luxury-charcoal">
-                  Rent Amount
-                </Label>
-                <Input
-                  id="rentAmount"
-                  type="number"
-                  value={rentAmount}
-                  onChange={(e) => setRentAmount(e.target.value)}
-                  required
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter rent amount"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <Label htmlFor="rentAmount" className="text-luxury-charcoal">
+                    Rent Amount
+                  </Label>
+                  <div className="mt-1.5 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-luxury-charcoal/70">₹</span>
+                    <Input
+                      id="rentAmount"
+                      type="number"
+                      value={rentAmount}
+                      onChange={(e) => setRentAmount(e.target.value)}
+                      required
+                      className="pl-7 border-luxury-cream focus:ring-luxury-gold"
+                      placeholder="Enter rent amount"
+                      readOnly
+                    />
+                  </div>
+                  <p className="text-sm text-luxury-charcoal/70 mt-1">
+                    Monthly rent target is fixed at ₹{flat.monthly_rent_target?.toLocaleString()}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="rentDescription" className="text-luxury-charcoal">
+                    Description
+                  </Label>
+                  <Input
+                    id="rentDescription"
+                    value={rentDescription}
+                    onChange={(e) => setRentDescription(e.target.value)}
+                    className="mt-1.5 border-luxury-cream focus:ring-luxury-gold"
+                    placeholder="Enter description (e.g., Rent Payment)"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="expiryDays" className="text-luxury-charcoal">
+                    Link Expiry (Days)
+                  </Label>
+                  <Input
+                    id="expiryDays"
+                    type="number"
+                    value={expiryDays}
+                    onChange={(e) => setExpiryDays(e.target.value)}
+                    required
+                    min="1"
+                    className="mt-1.5 border-luxury-cream focus:ring-luxury-gold"
+                    placeholder="Enter expiry days"
+                  />
+                </div>
               </div>
-              <div>
-                <Label
-                  htmlFor="rentDescription"
-                  className="text-luxury-charcoal"
-                >
-                  Description
-                </Label>
-                <Input
-                  id="rentDescription"
-                  value={rentDescription}
-                  onChange={(e) => setRentDescription(e.target.value)}
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter description (e.g., Rent Payment)"
-                />
-              </div>
-              <div>
-                <Label htmlFor="expiryDays" className="text-luxury-charcoal">
-                  Link Expiry (Days)
-                </Label>
-                <Input
-                  id="expiryDays"
-                  type="number"
-                  value={expiryDays}
-                  onChange={(e) => setExpiryDays(e.target.value)}
-                  required
-                  min="1"
-                  className="border-luxury-cream focus:ring-luxury-gold"
-                  placeholder="Enter expiry days"
-                />
-              </div>
-              <DialogFooter>
+              <DialogFooter className="sm:justify-between gap-4 pt-4">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setSendPaymentLinksOpen(false)}
-                  className="border-luxury-cream hover:bg-luxury-cream/20"
+                  className="w-full sm:w-auto border-luxury-cream hover:bg-luxury-cream/20"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                  className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
                   disabled={createPaymentLinksMutation.isPending}
                 >
                   {createPaymentLinksMutation.isPending

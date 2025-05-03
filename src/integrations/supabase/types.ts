@@ -114,6 +114,8 @@ export type Database = {
           flat_id: string | null
           id: string
           title: string
+          category: string | null
+          receipt_id: string | null
         }
         Insert: {
           amount: number
@@ -123,6 +125,8 @@ export type Database = {
           flat_id?: string | null
           id?: string
           title: string
+          category?: string | null
+          receipt_id?: string | null
         }
         Update: {
           amount?: number
@@ -132,15 +136,10 @@ export type Database = {
           flat_id?: string | null
           id?: string
           title?: string
+          category?: string | null
+          receipt_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "expenses_flat_id_fkey"
-            columns: ["flat_id"]
-            isOneToOne: false
-            referencedRelation: "flat_expense_report"
-            referencedColumns: ["flat_id"]
-          },
           {
             foreignKeyName: "expenses_flat_id_fkey"
             columns: ["flat_id"]
@@ -148,6 +147,13 @@ export type Database = {
             referencedRelation: "flats"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "expenses_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "property_documents"
+            referencedColumns: ["id"]
+          }
         ]
       }
       flats: {
@@ -157,6 +163,11 @@ export type Database = {
           id: string
           monthly_rent_target: number
           name: string
+          description: string | null
+          property_tags?: {
+            id: string
+            tag_name: string
+          }[] | null
         }
         Insert: {
           address: string
@@ -164,6 +175,7 @@ export type Database = {
           id?: string
           monthly_rent_target: number
           name: string
+          description?: string | null
         }
         Update: {
           address?: string
@@ -171,6 +183,7 @@ export type Database = {
           id?: string
           monthly_rent_target?: number
           name?: string
+          description?: string | null
         }
         Relationships: []
       }
@@ -466,6 +479,7 @@ export type Database = {
           paid_on: string | null
           tenant_id: string
           whatsapp_sent: boolean
+          flat_id: string
         }
         Insert: {
           amount: number
@@ -477,6 +491,7 @@ export type Database = {
           paid_on?: string | null
           tenant_id: string
           whatsapp_sent?: boolean
+          flat_id: string
         }
         Update: {
           amount?: number
@@ -488,6 +503,7 @@ export type Database = {
           paid_on?: string | null
           tenant_id?: string
           whatsapp_sent?: boolean
+          flat_id?: string
         }
         Relationships: [
           {
@@ -497,6 +513,13 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "rents_flat_id_fkey"
+            columns: ["flat_id"]
+            isOneToOne: false
+            referencedRelation: "flats"
+            referencedColumns: ["id"]
+          }
         ]
       }
       tenant_furniture: {

@@ -94,13 +94,6 @@ export default function RentForm({ open, onOpenChange, flatId, tenantId }: RentF
         setFormData((prev) => ({
           ...prev,
           amount: selectedFlat.monthly_rent_target.toString(),
-          tenantId: "",
-        }));
-      } else {
-        setFormData((prev) => ({
-          ...prev,
-          amount: "",
-          tenantId: "",
         }));
       }
     }
@@ -220,33 +213,72 @@ export default function RentForm({ open, onOpenChange, flatId, tenantId }: RentF
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.flatId) {
+    
+    // Validate amount matches monthly rent target
+    if (flats.find((flat) => flat.id === formData.flatId)?.monthly_rent_target != null) {
+      const rentAmount = parseFloat(formData.amount);
+      const selectedFlat = flats.find((flat) => flat.id === formData.flatId);
+      if (rentAmount !== selectedFlat?.monthly_rent_target) {
+        toast({
+          title: "Invalid Amount",
+          description: `Rent amount must match the monthly target of ₹${selectedFlat?.monthly_rent_target}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    try {
+      // Create rent record
+      const { data: rentData, error: rentError } = await typedSupabase
+        .from("rents")
+        .insert({
+          tenant_id: formData.tenantId,
+          flat_id: formData.flatId,
+          amount: parseFloat(formData.amount),
+          due_date: formData.dueDate,
+          is_paid: formData.isPaid,
+          whatsapp_sent: formData.sendWhatsapp,
+          custom_message: formData.customMessage || null,
+          notes: formData.notes || null,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (rentError) throw rentError;
+
+      // If marked as paid, create payment transaction
+      if (formData.isPaid) {
+        const { error: transactionError } = await typedSupabase
+          .from("payment_transactions")
+          .insert({
+            rent_id: rentData.id,
+            tenant_id: formData.tenantId,
+            amount: parseFloat(formData.amount),
+            payment_date: new Date().toISOString().split("T")[0],
+            payment_method: formData.paymentMethod,
+            status: "paid",
+          });
+
+        if (transactionError) throw transactionError;
+      }
+
+      toast({
+        title: "Success",
+        description: "Rent record created successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+      onOpenChange(false);
+    } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Validation error",
-        description: "Please select a flat.",
+        title: "Error",
+        description: error.message || "Failed to create rent record",
       });
-      return;
     }
-    if (!formData.tenantId) {
-      toast({
-        variant: "destructive",
-        title: "Validation error",
-        description: "Please select a tenant.",
-      });
-      return;
-    }
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      toast({
-        variant: "destructive",
-        title: "Validation error",
-        description: "Please enter a valid amount.",
-      });
-      return;
-    }
-    createRentMutation.mutate(formData);
   };
 
   const handleFlatSelect = (flatId: string) => {
@@ -547,13 +579,11 @@ export default function RentForm({ open, onOpenChange, flatId, tenantId }: RentF
   if (open !== undefined && onOpenChange) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-full max-w-[95vw] sm:max-w-[700px] md:max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">
-              Record Rent Payment
-            </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">
-              Select a flat and tenant, then enter the rent payment details.
+            <DialogTitle>Record Rent Payment</DialogTitle>
+            <DialogDescription>
+              Create a new rent record for the selected property and tenant.
             </DialogDescription>
           </DialogHeader>
           {formContent}
