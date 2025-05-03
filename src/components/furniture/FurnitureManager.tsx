@@ -577,9 +577,10 @@ export default function FurnitureManager({
                   id="quantity"
                   type="number"
                   value={assignFormData.quantity}
-                  onChange={(e) =>
-                    setAssignFormData({ ...assignFormData, quantity: parseInt(e.target.value) || 1 })
-                  }
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value);
+                    setAssignFormData({ ...assignFormData, quantity: isNaN(value) ? 0 : value });
+                  }}
                   min="1"
                   className={errors.quantity ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
                 />
