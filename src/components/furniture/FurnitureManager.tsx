@@ -576,10 +576,10 @@ export default function FurnitureManager({
                 <Input
                   id="quantity"
                   type="number"
-                  value={assignFormData.quantity}
+                  value={assignFormData.quantity || ""}
                   onChange={(e) => {
-                    const value = parseInt(e.target.value);
-                    setAssignFormData({ ...assignFormData, quantity: isNaN(value) ? 0 : value });
+                    const value = e.target.value === "" ? 0 : parseInt(e.target.value);
+                    setAssignFormData({ ...assignFormData, quantity: value });
                   }}
                   min="1"
                   className={errors.quantity ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
@@ -591,10 +591,11 @@ export default function FurnitureManager({
                 <Input
                   id="unit_rent"
                   type="number"
-                  value={assignFormData.unit_rent}
-                  onChange={(e) =>
-                    setAssignFormData({ ...assignFormData, unit_rent: parseFloat(e.target.value) || 0 })
-                  }
+                  value={assignFormData.unit_rent || ""}
+                  onChange={(e) => {
+                    const value = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                    setAssignFormData({ ...assignFormData, unit_rent: value });
+                  }}
                   min="0"
                   className={errors.unit_rent ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
                 />

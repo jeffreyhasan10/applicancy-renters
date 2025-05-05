@@ -283,7 +283,7 @@ export default function InventoryForm({
         name === "purchase_price" || name === "unit_rent"
           ? parseFloat(value) || 0
           : name === "total_quantity" || name === "available_quantity"
-          ? parseInt(value) || 1
+          ? parseInt(value.replace(/^0+/, '')) || 1
           : value,
     }));
   };

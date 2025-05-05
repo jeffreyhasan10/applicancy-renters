@@ -114,6 +114,22 @@ function InventoryForm({
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [existingItem, setExistingItem] = useState<InventoryItem | null>(null);
 
+  // Reset form when initialItem changes
+  useEffect(() => {
+    if (initialItem) {
+      setFormData({
+        name: initialItem.name,
+        category: initialItem.category,
+        condition: initialItem.condition,
+        purchase_date: initialItem.purchase_date,
+        purchase_price: initialItem.purchase_price,
+        unit_rent: initialItem.unit_rent,
+        total_quantity: initialItem.total_quantity,
+        is_appliance: initialItem.category === "Appliance",
+      });
+    }
+  }, [initialItem]);
+
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
     if (!formData.name) newErrors.name = "Name is required";
@@ -301,7 +317,7 @@ function InventoryForm({
             <Input
               id="purchase_price"
               type="number"
-              value={formData.purchase_price}
+              value={formData.purchase_price || ""}
               onChange={(e) => setFormData({ ...formData, purchase_price: parseFloat(e.target.value) || 0 })}
               min="0"
               className={errors.purchase_price ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
@@ -313,7 +329,7 @@ function InventoryForm({
             <Input
               id="unit_rent"
               type="number"
-              value={formData.unit_rent}
+              value={formData.unit_rent || ""}
               onChange={(e) => setFormData({ ...formData, unit_rent: parseFloat(e.target.value) || 0 })}
               min="0"
               className={errors.unit_rent ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
@@ -325,8 +341,18 @@ function InventoryForm({
             <Input
               id="total_quantity"
               type="number"
-              value={formData.total_quantity}
-              onChange={(e) => setFormData({ ...formData, total_quantity: parseInt(e.target.value) || 1 })}
+              value={formData.total_quantity || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "") {
+                  setFormData({ ...formData, total_quantity: 0 });
+                } else {
+                  const numValue = parseInt(value);
+                  if (!isNaN(numValue) && numValue >= 0) {
+                    setFormData({ ...formData, total_quantity: numValue });
+                  }
+                }
+              }}
               min="1"
               className={errors.total_quantity ? "border-red-500" : "border-gray-200 focus:ring-blue-500"}
             />

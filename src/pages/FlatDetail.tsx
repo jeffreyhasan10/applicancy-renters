@@ -2187,30 +2187,39 @@ const FlatDetail = () => {
                           <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
                           Rent Collection
                         </CardTitle>
-                        <div className="flex space-x-2">
-                          <div className="flex items-center space-x-2">
-                            <Label htmlFor="month-filter" className="text-sm">Month:</Label>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-2 border border-luxury-cream">
+                            <Label htmlFor="month-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70">
+                              <Calendar className="h-4 w-4 inline-block mr-1.5" />
+                              Month:
+                            </Label>
                             <Input
                               id="month-filter"
                               type="month"
                               value={selectedMonth}
                               onChange={(e) => setSelectedMonth(e.target.value)}
-                              className="w-36"
+                              className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8 px-2"
                             />
                           </div>
-                          <Select 
-                            value={rentStatusFilter}
-                            onValueChange={setRentStatusFilter}
-                          >
-                            <SelectTrigger className="w-[140px]">
-                              <SelectValue placeholder="Filter by status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All</SelectItem>
-                              <SelectItem value="paid">Paid</SelectItem>
-                              <SelectItem value="unpaid">Unpaid</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-2 border border-luxury-cream">
+                            <Label htmlFor="status-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70">
+                              <Filter className="h-4 w-4 inline-block mr-1.5" />
+                              Status:
+                            </Label>
+                            <Select 
+                              value={rentStatusFilter}
+                              onValueChange={setRentStatusFilter}
+                            >
+                              <SelectTrigger id="status-filter" className="w-[120px] border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                                <SelectValue placeholder="Filter by status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All</SelectItem>
+                                <SelectItem value="paid">Paid</SelectItem>
+                                <SelectItem value="unpaid">Unpaid</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
                     </CardHeader>
@@ -2978,7 +2987,7 @@ const FlatDetail = () => {
               <Input
                 id="assigned_quantity"
                 type="number"
-                value={tenantFurnitureForm.assigned_quantity}
+                value={tenantFurnitureForm.assigned_quantity === "0" ? "" : tenantFurnitureForm.assigned_quantity}
                 onChange={(e) =>
                   setTenantFurnitureForm({
                     ...tenantFurnitureForm,
@@ -2998,7 +3007,7 @@ const FlatDetail = () => {
               <Input
                 id="purchase_price"
                 type="number"
-                value={tenantFurnitureForm.purchase_price}
+                value={tenantFurnitureForm.purchase_price === "0" ? "" : tenantFurnitureForm.purchase_price}
                 onChange={(e) =>
                   setTenantFurnitureForm({
                     ...tenantFurnitureForm,
