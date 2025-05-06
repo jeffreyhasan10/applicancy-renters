@@ -122,17 +122,34 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
           .select()
           .single();
         if (error) throw new Error(error.message || "Failed to create flat");
+
+        const { error: rentError } = await typedSupabase
+          .from("rents")
+          .insert({
+            tenant_id: null,
+            flat_id: newFlat.id,
+            amount: flatData.monthly_rent_target,
+            due_date: new Date().toISOString().split('T')[0],
+            is_paid: false,
+            created_at: new Date().toISOString(),
+            whatsapp_sent: false,
+            custom_message: "Initial pending rent for new flat"
+          });
+        
+        if (rentError) throw new Error(rentError.message || "Failed to create initial rent record");
+        
         return { success: true, id: newFlat.id };
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["flats"] });
       queryClient.invalidateQueries({ queryKey: ["flat", flat?.id] });
+      queryClient.invalidateQueries({ queryKey: ["rents"] });
       toast({
         title: isEditing ? "Flat updated" : "Flat created",
         description: isEditing
           ? `${formData.name} has been updated successfully.`
-          : `${formData.name} has been added successfully.`,
+          : `${formData.name} has been added successfully with initial pending rent.`,
         className: "bg-luxury-gold text-luxury-charcoal border-none",
       });
       if (onSuccess) onSuccess();

@@ -105,8 +105,8 @@ export default function RentCollection() {
 
         return {
           id: rent.id,
-          tenant: rent.tenants?.name || "Unknown Tenant",
-          flatName: rent.tenants?.flats?.name || "Unknown Flat",
+          tenant: rent.tenants?.name || "Tenant",
+          flatName: rent.tenants?.flats?.name || "Tenant",
           amount: parseFloat(rent.amount as unknown as string),
           dueDate: new Date(rent.due_date).toLocaleDateString("en-IN", {
             day: "numeric",

@@ -456,7 +456,7 @@ export default function PaymentLinks() {
                       <CardHeader className="pb-3">
                         <div className="flex justify-between items-start gap-2">
                           <div className="min-w-0">
-                            <CardTitle className="text-lg truncate">{link.tenant?.name || "Unknown Tenant"}</CardTitle>
+                            <CardTitle className="text-lg truncate">{link.tenant?.name || "Flat Rent"}</CardTitle>
                             <CardDescription className="line-clamp-2 text-sm">{link.description || "No description"}</CardDescription>
                           </div>
                           <Badge className={`

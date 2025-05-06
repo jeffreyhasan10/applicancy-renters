@@ -2584,7 +2584,7 @@ const FlatDetail = () => {
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                   <div className="space-y-2">
                                     <h3 className="font-medium text-luxury-charcoal">
-                                      {rent.tenant?.name || "Unknown Tenant"}
+                                      {rent.tenant?.name || "Flat Rent"}
                                     </h3>
                                     <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-luxury-charcoal/70">
                                       <p className="flex items-center">
@@ -3975,7 +3975,7 @@ const FlatDetail = () => {
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div className="space-y-2">
                               <p className="font-medium text-luxury-charcoal">
-                                {tenant?.name || "Unknown Tenant"}
+                                {tenant?.name || "Flat Rent"}
                               </p>
                               <div className="flex items-center gap-2">
                                 <a
