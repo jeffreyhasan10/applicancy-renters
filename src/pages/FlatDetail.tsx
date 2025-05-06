@@ -23,6 +23,10 @@ import {
   Filter,
   DollarSign,
   Copy,
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Card,
@@ -60,9 +64,18 @@ import FurnitureManager from "@/components/furniture/FurnitureManager";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { format, subDays } from "date-fns";
+import { format, subDays, addMonths, subMonths, startOfMonth, endOfMonth, isSameMonth, isSameDay } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import type { Database } from "@/integrations/supabase/types";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 type Flat = Database["public"]["Tables"]["flats"]["Row"];
 type MaintenanceRequest = Database["public"]["Tables"]["maintenance_requests"]["Row"];
@@ -73,11 +86,16 @@ type Expense = Database["public"]["Tables"]["expenses"]["Row"] & {
 };
 type Tenant = Database["public"]["Tables"]["tenants"]["Row"];
 type RentType = Database["public"]["Tables"]["rents"]["Row"] & {
-  payment_links?: {
+  payment_links?: Array<{
     id: string;
     payment_link: string;
     status: string | null;
-  }[];
+  }>;
+  tenant?: {
+    id: string;
+    name: string;
+    phone?: string;
+  };
 };
 
 interface FurnitureItem {
@@ -188,6 +206,29 @@ interface MaintenanceForm {
   tenant_id: string | null;
 }
 
+interface RentStatistics {
+  totalRents: number;
+  paidRents: number;
+  unpaidRents: number;
+  collectionPercentage: number;
+  monthlyStats: {
+    [key: string]: {
+      total: number;
+      paid: number;
+      unpaid: number;
+      percentage: number;
+    };
+  };
+}
+
+interface MonthlyRentSummary {
+  month: string;
+  total: number;
+  paid: number;
+  unpaid: number;
+  percentage: number;
+}
+
 const fadeIn = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.4 } },
@@ -256,7 +297,12 @@ const FlatDetail = () => {
     purchase_date: format(new Date(), "yyyy-MM-dd"),
     condition: "new",
   });
+  const [selectedYear, setSelectedYear] = useState<string>(format(new Date(), "yyyy"));
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), "yyyy-MM"));
+  const [dateRange, setDateRange] = useState<{start: string; end: string}>({
+    start: format(subMonths(new Date(), 11), "yyyy-MM-dd"),
+    end: format(new Date(), "yyyy-MM-dd"),
+  });
 
   // Tab change handler
   const handleTabChange = (value: string) => {
@@ -1074,6 +1120,88 @@ const FlatDetail = () => {
       });
     },
   });
+
+  // Calculate rent statistics
+  const calculateRentStatistics = (rents: RentType[]): RentStatistics => {
+    const stats: RentStatistics = {
+      totalRents: 0,
+      paidRents: 0,
+      unpaidRents: 0,
+      collectionPercentage: 0,
+      monthlyStats: {},
+    };
+
+    if (!rents || rents.length === 0) return stats;
+
+    rents.forEach((rent) => {
+      const monthKey = format(new Date(rent.due_date), "yyyy-MM");
+      if (!stats.monthlyStats[monthKey]) {
+        stats.monthlyStats[monthKey] = {
+          total: 0,
+          paid: 0,
+          unpaid: 0,
+          percentage: 0,
+        };
+      }
+
+      stats.totalRents += rent.amount;
+      stats.monthlyStats[monthKey].total += rent.amount;
+
+      if (rent.is_paid) {
+        stats.paidRents += rent.amount;
+        stats.monthlyStats[monthKey].paid += rent.amount;
+      } else {
+        stats.unpaidRents += rent.amount;
+        stats.monthlyStats[monthKey].unpaid += rent.amount;
+      }
+    });
+
+    stats.collectionPercentage = (stats.paidRents / stats.totalRents) * 100;
+
+    // Calculate monthly percentages
+    Object.keys(stats.monthlyStats).forEach((month) => {
+      const monthStats = stats.monthlyStats[month];
+      monthStats.percentage = (monthStats.paid / monthStats.total) * 100;
+    });
+
+    return stats;
+  };
+
+  // Get monthly summaries
+  const getMonthlySummaries = (stats: RentStatistics): MonthlyRentSummary[] => {
+    return Object.entries(stats.monthlyStats)
+      .map(([month, data]) => ({
+        month,
+        ...data,
+      }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+  };
+
+  const rentStats = calculateRentStatistics(rents || []);
+  const monthlySummaries = getMonthlySummaries(rentStats);
+
+  const getChartData = (rents: RentType[]) => {
+    const monthlyData: { [key: string]: { month: string; total: number; collected: number } } = {};
+    
+    rents.forEach(rent => {
+      const monthKey = format(new Date(rent.due_date), "MMM yyyy");
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = {
+          month: monthKey,
+          total: 0,
+          collected: 0,
+        };
+      }
+      monthlyData[monthKey].total += rent.amount;
+      if (rent.is_paid) {
+        monthlyData[monthKey].collected += rent.amount;
+      }
+    });
+
+    return Object.values(monthlyData).sort((a, b) => 
+      new Date(a.month).getTime() - new Date(b.month).getTime()
+    );
+  };
 
   if (isLoading) {
     return (
@@ -2180,16 +2308,151 @@ const FlatDetail = () => {
             <TabsContent value="rents" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+                  {/* Rent Statistics Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card className="bg-white shadow-sm border border-luxury-cream">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-luxury-charcoal/70">Total Collection</span>
+                          <span className="text-2xl font-semibold text-luxury-charcoal">
+                            ₹{rentStats.totalRents.toLocaleString()}
+                          </span>
+                          <span className="text-sm text-luxury-charcoal/70 mt-1">
+                            All time
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white shadow-sm border border-luxury-cream">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-luxury-charcoal/70">Collected</span>
+                          <span className="text-2xl font-semibold text-emerald-600">
+                            ₹{rentStats.paidRents.toLocaleString()}
+                          </span>
+                          <span className="text-sm text-emerald-600/70 mt-1">
+                            {rentStats.collectionPercentage.toFixed(1)}% collected
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white shadow-sm border border-luxury-cream">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-luxury-charcoal/70">Pending</span>
+                          <span className="text-2xl font-semibold text-red-600">
+                            ₹{rentStats.unpaidRents.toLocaleString()}
+                          </span>
+                          <span className="text-sm text-red-600/70 mt-1">
+                            {(100 - rentStats.collectionPercentage).toFixed(1)}% pending
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white shadow-sm border border-luxury-cream">
+                      <CardContent className="p-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm text-luxury-charcoal/70">This Month</span>
+                          <span className="text-2xl font-semibold text-luxury-charcoal">
+                            ₹{(rentStats.monthlyStats[selectedMonth]?.total || 0).toLocaleString()}
+                          </span>
+                          <span className="text-sm text-luxury-charcoal/70 mt-1">
+                            {rentStats.monthlyStats[selectedMonth]?.percentage.toFixed(1) || 0}% collected
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Monthly Summary Table */}
                   <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
                     <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-                          <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
-                          Rent Collection
+                          <Calendar className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Monthly Collection Summary
                         </CardTitle>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-2 border border-luxury-cream">
-                            <Label htmlFor="month-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Select
+                            value={selectedYear}
+                            onValueChange={setSelectedYear}
+                          >
+                            <SelectTrigger className="w-[120px] border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                              <SelectValue placeholder="Select year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from(new Set(monthlySummaries.map(s => s.month.substring(0, 4)))).map(year => (
+                                <SelectItem key={year} value={year}>{year}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-luxury-cream bg-luxury-cream/5">
+                              <th className="px-4 py-3 text-left text-sm font-medium text-luxury-charcoal">Month</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Total</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Collected</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Pending</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Collection %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthlySummaries
+                              .filter(summary => summary.month.startsWith(selectedYear))
+                              .map((summary) => (
+                                <tr key={summary.month} className="border-b border-luxury-cream hover:bg-luxury-cream/5">
+                                  <td className="px-4 py-3 text-sm text-luxury-charcoal whitespace-nowrap">
+                                    {format(new Date(summary.month), "MMMM yyyy")}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right text-luxury-charcoal whitespace-nowrap">
+                                    ₹{summary.total.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right text-emerald-600 whitespace-nowrap">
+                                    ₹{summary.paid.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right text-red-600 whitespace-nowrap">
+                                    ₹{summary.unpaid.toLocaleString()}
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right">
+                                    <Badge className={summary.percentage >= 90 ? "bg-emerald-100 text-emerald-700" : 
+                                                   summary.percentage >= 70 ? "bg-amber-100 text-amber-700" :
+                                                   "bg-red-100 text-red-700"}>
+                                      {summary.percentage.toFixed(1)}%
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Rent Collection List */}
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+                      <div className="flex flex-col space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                            <Banknote className="h-5 w-5 mr-2 text-luxury-gold" />
+                            Rent Collection
+                          </CardTitle>
+                          <Button
+                            onClick={() => setSendPaymentLinksOpen(true)}
+                            className="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
+                          >
+                            <FilePlus className="h-4 w-4 mr-2" />
+                            Create Rent Invoice
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
+                            <Label htmlFor="month-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
                               <Calendar className="h-4 w-4 inline-block mr-1.5" />
                               Month:
                             </Label>
@@ -2198,11 +2461,11 @@ const FlatDetail = () => {
                               type="month"
                               value={selectedMonth}
                               onChange={(e) => setSelectedMonth(e.target.value)}
-                              className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8 px-2"
+                              className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8 px-2"
                             />
                           </div>
-                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-2 border border-luxury-cream">
-                            <Label htmlFor="status-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70">
+                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
+                            <Label htmlFor="status-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
                               <Filter className="h-4 w-4 inline-block mr-1.5" />
                               Status:
                             </Label>
@@ -2210,13 +2473,31 @@ const FlatDetail = () => {
                               value={rentStatusFilter}
                               onValueChange={setRentStatusFilter}
                             >
-                              <SelectTrigger id="status-filter" className="w-[120px] border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                              <SelectTrigger id="status-filter" className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
                                 <SelectValue placeholder="Filter by status" />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="all">All</SelectItem>
                                 <SelectItem value="paid">Paid</SelectItem>
                                 <SelectItem value="unpaid">Unpaid</SelectItem>
+                                <SelectItem value="overdue">Overdue</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
+                            <Label htmlFor="sort-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
+                              <ArrowUpDown className="h-4 w-4 inline-block mr-1.5" />
+                              Sort:
+                            </Label>
+                            <Select defaultValue="date-desc">
+                              <SelectTrigger id="sort-filter" className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                                <SelectValue placeholder="Sort by" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="date-desc">Date (Newest)</SelectItem>
+                                <SelectItem value="date-asc">Date (Oldest)</SelectItem>
+                                <SelectItem value="amount-desc">Amount (High)</SelectItem>
+                                <SelectItem value="amount-asc">Amount (Low)</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -2260,19 +2541,28 @@ const FlatDetail = () => {
                                 key={rent.id}
                                 className="border border-luxury-cream rounded-lg p-4 hover:bg-luxury-cream/10 transition-colors"
                               >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                  <div>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                  <div className="space-y-2">
                                     <h3 className="font-medium text-luxury-charcoal">
                                       {rent.tenant?.name || "Unknown Tenant"}
                                     </h3>
-                                    <p className="text-sm text-luxury-charcoal/70">
-                                      Due: {format(new Date(rent.due_date), "dd MMM yyyy")}
-                                    </p>
-                                    <p className="text-sm text-luxury-charcoal/70">
-                                      Amount: ₹{rent.amount.toLocaleString()}
-                                    </p>
+                                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-luxury-charcoal/70">
+                                      <p className="flex items-center">
+                                        <Calendar className="h-4 w-4 mr-1.5" />
+                                        Due: {format(new Date(rent.due_date), "dd MMM yyyy")}
+                                      </p>
+                                      <p className="flex items-center">
+                                        <Banknote className="h-4 w-4 mr-1.5" />
+                                        Amount: ₹{rent.amount.toLocaleString()}
+                                      </p>
+                                      <Badge className={rent.is_paid 
+                                        ? "bg-emerald-100 text-emerald-600 border-emerald-200"
+                                        : "bg-red-100 text-red-600 border-red-200"}>
+                                        {rent.is_paid ? "Paid" : "Unpaid"}
+                                      </Badge>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center space-x-2 mt-4 sm:mt-0">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <Button
                                       variant={rent.is_paid ? "destructive" : "default"}
                                       size="sm"
@@ -3883,6 +4173,86 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
+      <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+        <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+              <LineChart className="h-5 w-5 mr-2 text-luxury-gold" />
+              Payment History
+            </CardTitle>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="start-date" className="text-sm text-luxury-charcoal/70">From</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                  className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="end-date" className="text-sm text-luxury-charcoal/70">To</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                  className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
+                />
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={getChartData(rents || [])}
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="month"
+                  stroke="#6B7280"
+                  fontSize={12}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="#6B7280"
+                  fontSize={12}
+                  tickLine={false}
+                  tickFormatter={(value) => `₹${value.toLocaleString()}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "0.375rem",
+                  }}
+                  formatter={(value: number) => [`₹${value.toLocaleString()}`, ""]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#9CA3AF"
+                  strokeWidth={2}
+                  name="Total Rent"
+                  dot={{ fill: "#9CA3AF" }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="collected"
+                  stroke="#059669"
+                  strokeWidth={2}
+                  name="Collected"
+                  dot={{ fill: "#059669" }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
