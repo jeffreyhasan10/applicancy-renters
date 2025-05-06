@@ -86,16 +86,16 @@ type Expense = Database["public"]["Tables"]["expenses"]["Row"] & {
 };
 type Tenant = Database["public"]["Tables"]["tenants"]["Row"];
 type RentType = Database["public"]["Tables"]["rents"]["Row"] & {
+  tenant?: {
+    id: string;
+    name: string;
+    phone: string | null;
+  };
   payment_links?: Array<{
     id: string;
     payment_link: string;
     status: string | null;
   }>;
-  tenant?: {
-    id: string;
-    name: string;
-    phone?: string;
-  };
 };
 
 interface FurnitureItem {
@@ -140,16 +140,17 @@ interface ExpenseFilter {
   maxAmount: string;
 }
 
-interface RentWithRelations extends RentType {
+interface RentWithRelations extends Omit<RentType, 'tenant' | 'payment_links'> {
   tenant?: {
     id: string;
     name: string;
+    phone: string | null;
   };
-  payment_links?: {
+  payment_links?: Array<{
     id: string;
     payment_link: string;
     status: string | null;
-  }[];
+  }>;
 }
 
 interface PaymentLinkData {
@@ -174,7 +175,7 @@ interface FlatWithRelations {
   monthly_rent_target: number;
   created_at: string;
   description: string | null;
-  security_deposit?: number;
+  security_deposit: number;
   tenants?: Tenant[];
   property_documents?: PropertyDocument[];
   property_photos?: PropertyPhoto[];
@@ -303,6 +304,9 @@ const FlatDetail = () => {
     start: format(subMonths(new Date(), 11), "yyyy-MM-dd"),
     end: format(new Date(), "yyyy-MM-dd"),
   });
+  const [deleteRecordOpen, setDeleteRecordOpen] = useState(false);
+  const [deleteRentOpen, setDeleteRentOpen] = useState(false);
+  const [selectedRentId, setSelectedRentId] = useState<string | null>(null);
 
   // Tab change handler
   const handleTabChange = (value: string) => {
@@ -1043,11 +1047,11 @@ const FlatDetail = () => {
     enabled: !!id,
   });
 
-  // Add rents query
+  // Update the rents query
   const {
     data: rents,
     isLoading: rentsLoading,
-  } = useQuery({
+  } = useQuery<RentWithRelations[]>({
     queryKey: ["rents", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
@@ -1055,13 +1059,13 @@ const FlatDetail = () => {
         .from("rents")
         .select(`
           *,
-          tenant:tenants(id, name),
-          payment_links(*)
+          tenant:tenants(id, name, phone),
+          payment_links(id, payment_link, status)
         `)
-        .eq("tenant.flat_id", id)
+        .eq("flat_id", id)
         .order("due_date", { ascending: false });
       if (error) throw new Error(error.message);
-      return data || [];
+      return (data as unknown as RentWithRelations[]) || [];
     },
     enabled: !!id,
   });
@@ -1122,7 +1126,7 @@ const FlatDetail = () => {
   });
 
   // Calculate rent statistics
-  const calculateRentStatistics = (rents: RentType[]): RentStatistics => {
+  const calculateRentStatistics = (rents: RentWithRelations[]): RentStatistics => {
     const stats: RentStatistics = {
       totalRents: 0,
       paidRents: 0,
@@ -1177,10 +1181,10 @@ const FlatDetail = () => {
       .sort((a, b) => b.month.localeCompare(a.month));
   };
 
-  const rentStats = calculateRentStatistics(rents || []);
+  const rentStats = calculateRentStatistics((rents || []) as RentWithRelations[]);
   const monthlySummaries = getMonthlySummaries(rentStats);
 
-  const getChartData = (rents: RentType[]) => {
+  const getChartData = (rents: RentWithRelations[]) => {
     const monthlyData: { [key: string]: { month: string; total: number; collected: number } } = {};
     
     rents.forEach(rent => {
@@ -1202,6 +1206,34 @@ const FlatDetail = () => {
       new Date(a.month).getTime() - new Date(b.month).getTime()
     );
   };
+
+  // Add delete flat mutation after other mutations
+  const deleteFlatMutation = useMutation({
+    mutationFn: async () => {
+      // First delete all related records
+      const { error: relatedError } = await typedSupabase
+        .from("flats")
+        .delete()
+        .eq("id", id);
+      if (relatedError) throw new Error(relatedError.message);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Property deleted successfully",
+        className: "bg-luxury-gold text-luxury-charcoal border-none",
+      });
+      // Navigate back to flats list
+      window.location.href = "/flats";
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to delete property",
+      });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -1312,6 +1344,14 @@ const FlatDetail = () => {
             {flat.tenants && flat.tenants.length > 0
               ? "Manage Tenants"
               : "Add Tenant"}
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => setDeleteRecordOpen(true)}
+            className="w-full sm:w-auto text-sm flex items-center"
+            aria-label="Delete property"
+          >
+            <Trash2 className="h-4 w-4 mr-2" /> Delete
           </Button>
         </div>
       </div>
@@ -2309,15 +2349,15 @@ const FlatDetail = () => {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
                 <div className="lg:col-span-2 space-y-4 sm:space-y-6">
                   {/* Rent Statistics Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <Card className="bg-white shadow-sm border border-luxury-cream">
                       <CardContent className="p-4">
                         <div className="flex flex-col">
-                          <span className="text-sm text-luxury-charcoal/70">Total Collection</span>
-                          <span className="text-2xl font-semibold text-luxury-charcoal">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70">Total Collection</span>
+                          <span className="text-lg sm:text-2xl font-semibold text-luxury-charcoal">
                             ₹{rentStats.totalRents.toLocaleString()}
                           </span>
-                          <span className="text-sm text-luxury-charcoal/70 mt-1">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70 mt-1">
                             All time
                           </span>
                         </div>
@@ -2326,11 +2366,11 @@ const FlatDetail = () => {
                     <Card className="bg-white shadow-sm border border-luxury-cream">
                       <CardContent className="p-4">
                         <div className="flex flex-col">
-                          <span className="text-sm text-luxury-charcoal/70">Collected</span>
-                          <span className="text-2xl font-semibold text-emerald-600">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70">Collected</span>
+                          <span className="text-lg sm:text-2xl font-semibold text-emerald-600">
                             ₹{rentStats.paidRents.toLocaleString()}
                           </span>
-                          <span className="text-sm text-emerald-600/70 mt-1">
+                          <span className="text-xs sm:text-sm text-emerald-600/70 mt-1">
                             {rentStats.collectionPercentage.toFixed(1)}% collected
                           </span>
                         </div>
@@ -2339,11 +2379,11 @@ const FlatDetail = () => {
                     <Card className="bg-white shadow-sm border border-luxury-cream">
                       <CardContent className="p-4">
                         <div className="flex flex-col">
-                          <span className="text-sm text-luxury-charcoal/70">Pending</span>
-                          <span className="text-2xl font-semibold text-red-600">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70">Pending</span>
+                          <span className="text-lg sm:text-2xl font-semibold text-red-600">
                             ₹{rentStats.unpaidRents.toLocaleString()}
                           </span>
-                          <span className="text-sm text-red-600/70 mt-1">
+                          <span className="text-xs sm:text-sm text-red-600/70 mt-1">
                             {(100 - rentStats.collectionPercentage).toFixed(1)}% pending
                           </span>
                         </div>
@@ -2352,11 +2392,11 @@ const FlatDetail = () => {
                     <Card className="bg-white shadow-sm border border-luxury-cream">
                       <CardContent className="p-4">
                         <div className="flex flex-col">
-                          <span className="text-sm text-luxury-charcoal/70">This Month</span>
-                          <span className="text-2xl font-semibold text-luxury-charcoal">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70">This Month</span>
+                          <span className="text-lg sm:text-2xl font-semibold text-luxury-charcoal">
                             ₹{(rentStats.monthlyStats[selectedMonth]?.total || 0).toLocaleString()}
                           </span>
-                          <span className="text-sm text-luxury-charcoal/70 mt-1">
+                          <span className="text-xs sm:text-sm text-luxury-charcoal/70 mt-1">
                             {rentStats.monthlyStats[selectedMonth]?.percentage.toFixed(1) || 0}% collected
                           </span>
                         </div>
@@ -2450,30 +2490,30 @@ const FlatDetail = () => {
                             Create Rent Invoice
                           </Button>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
-                            <Label htmlFor="month-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="flex flex-col space-y-2">
+                            <Label htmlFor="month-filter" className="text-sm text-luxury-charcoal/70">
                               <Calendar className="h-4 w-4 inline-block mr-1.5" />
-                              Month:
+                              Month
                             </Label>
                             <Input
                               id="month-filter"
                               type="month"
                               value={selectedMonth}
                               onChange={(e) => setSelectedMonth(e.target.value)}
-                              className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8 px-2"
+                              className="border-luxury-cream/50 bg-white focus:ring-luxury-gold h-9"
                             />
                           </div>
-                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
-                            <Label htmlFor="status-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
+                          <div className="flex flex-col space-y-2">
+                            <Label htmlFor="status-filter" className="text-sm text-luxury-charcoal/70">
                               <Filter className="h-4 w-4 inline-block mr-1.5" />
-                              Status:
+                              Status
                             </Label>
                             <Select 
                               value={rentStatusFilter}
                               onValueChange={setRentStatusFilter}
                             >
-                              <SelectTrigger id="status-filter" className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                              <SelectTrigger id="status-filter" className="border-luxury-cream/50 bg-white focus:ring-luxury-gold h-9">
                                 <SelectValue placeholder="Filter by status" />
                               </SelectTrigger>
                               <SelectContent>
@@ -2484,13 +2524,13 @@ const FlatDetail = () => {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="flex items-center gap-3 bg-luxury-cream/10 rounded-lg p-3 border border-luxury-cream">
-                            <Label htmlFor="sort-filter" className="text-sm whitespace-nowrap text-luxury-charcoal/70 min-w-[4rem]">
+                          <div className="flex flex-col space-y-2">
+                            <Label htmlFor="sort-filter" className="text-sm text-luxury-charcoal/70">
                               <ArrowUpDown className="h-4 w-4 inline-block mr-1.5" />
-                              Sort:
+                              Sort
                             </Label>
                             <Select defaultValue="date-desc">
-                              <SelectTrigger id="sort-filter" className="flex-1 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8">
+                              <SelectTrigger id="sort-filter" className="border-luxury-cream/50 bg-white focus:ring-luxury-gold h-9">
                                 <SelectValue placeholder="Sort by" />
                               </SelectTrigger>
                               <SelectContent>
@@ -2581,9 +2621,8 @@ const FlatDetail = () => {
                                       variant="destructive"
                                       size="sm"
                                       onClick={() => {
-                                        if (confirm("Are you sure you want to delete this rent record?")) {
-                                          deleteRentMutation.mutate(rent.id);
-                                        }
+                                        setSelectedRentId(rent.id);
+                                        setDeleteRentOpen(true);
                                       }}
                                       className="bg-red-500 hover:bg-red-600"
                                     >
@@ -2620,6 +2659,91 @@ const FlatDetail = () => {
                           </Button>
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment History Chart - Moved to bottom */}
+                  <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
+                    <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <CardTitle className="text-xl text-luxury-charcoal flex items-center">
+                          <LineChart className="h-5 w-5 mr-2 text-luxury-gold" />
+                          Payment History
+                        </CardTitle>
+                        <div className="flex flex-wrap items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor="start-date" className="text-xs sm:text-sm text-luxury-charcoal/70">From</Label>
+                            <Input
+                              id="start-date"
+                              type="date"
+                              value={dateRange.start}
+                              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                              className="w-28 sm:w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor="end-date" className="text-xs sm:text-sm text-luxury-charcoal/70">To</Label>
+                            <Input
+                              id="end-date"
+                              type="date"
+                              value={dateRange.end}
+                              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                              className="w-28 sm:w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="h-[300px] sm:h-[400px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={getChartData((rents || []) as RentWithRelations[])}
+                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                            <XAxis
+                              dataKey="month"
+                              stroke="#6B7280"
+                              fontSize={12}
+                              tickLine={false}
+                              angle={-45}
+                              textAnchor="end"
+                              height={60}
+                            />
+                            <YAxis
+                              stroke="#6B7280"
+                              fontSize={12}
+                              tickLine={false}
+                              tickFormatter={(value) => `₹${value.toLocaleString()}`}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "white",
+                                border: "1px solid #E5E7EB",
+                                borderRadius: "0.375rem",
+                              }}
+                              formatter={(value: number) => [`₹${value.toLocaleString()}`, ""]}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="total"
+                              stroke="#9CA3AF"
+                              strokeWidth={2}
+                              name="Total Rent"
+                              dot={{ fill: "#9CA3AF" }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="collected"
+                              stroke="#059669"
+                              strokeWidth={2}
+                              name="Collected"
+                              dot={{ fill: "#059669" }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
@@ -3873,12 +3997,14 @@ const FlatDetail = () => {
                                 </Button>
                               </div>
                             </div>
-                            <WhatsAppIntegration
-                              phone={tenant?.phone || ""}
-                              message={`Dear ${tenant?.name}, please pay your rent of ₹${rentAmount} for ${flat.name}. Use this link: ${linkData.link}`}
-                              buttonLabel="Send via WhatsApp"
-                              buttonClassName="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 whitespace-nowrap"
-                            />
+                            {tenant?.phone && (
+                              <WhatsAppIntegration
+                                phone={tenant.phone}
+                                message={`Dear ${tenant.name}, please pay your rent of ₹${rentAmount} for ${flat.name}. Use this link: ${linkData.link}`}
+                                buttonLabel="Send via WhatsApp"
+                                buttonClassName="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80 whitespace-nowrap"
+                              />
+                            )}
                           </div>
                         </li>
                       );
@@ -4173,86 +4299,126 @@ const FlatDetail = () => {
           </form>
         </DialogContent>
       </Dialog>
-      <Card className="bg-white shadow-md border border-luxury-cream rounded-lg">
-        <CardHeader className="bg-gradient-to-r from-luxury-cream to-luxury-softwhite border-b border-luxury-cream">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-xl text-luxury-charcoal flex items-center">
-              <LineChart className="h-5 w-5 mr-2 text-luxury-gold" />
-              Payment History
-            </CardTitle>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="start-date" className="text-sm text-luxury-charcoal/70">From</Label>
-                <Input
-                  id="start-date"
-                  type="date"
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                  className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="end-date" className="text-sm text-luxury-charcoal/70">To</Label>
-                <Input
-                  id="end-date"
-                  type="date"
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                  className="w-36 border-luxury-cream/50 bg-white focus:ring-luxury-gold h-8"
-                />
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={getChartData(rents || [])}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+      <Dialog open={deleteRecordOpen} onOpenChange={setDeleteRecordOpen}>
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Delete Property
+            </DialogTitle>
+            <DialogDescription className="text-luxury-charcoal/70">
+              Are you sure you want to delete this property? This action cannot be undone and will remove all associated data including tenants, documents, and records.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <h4 className="text-red-600 font-medium mb-2 flex items-center">
+              <svg
+                className="h-5 w-5 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis
-                  dataKey="month"
-                  stroke="#6B7280"
-                  fontSize={12}
-                  tickLine={false}
-                />
-                <YAxis
-                  stroke="#6B7280"
-                  fontSize={12}
-                  tickLine={false}
-                  tickFormatter={(value) => `₹${value.toLocaleString()}`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "white",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "0.375rem",
-                  }}
-                  formatter={(value: number) => [`₹${value.toLocaleString()}`, ""]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="total"
-                  stroke="#9CA3AF"
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   strokeWidth={2}
-                  name="Total Rent"
-                  dot={{ fill: "#9CA3AF" }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="collected"
-                  stroke="#059669"
-                  strokeWidth={2}
-                  name="Collected"
-                  dot={{ fill: "#059669" }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+              Warning
+            </h4>
+            <p className="text-sm text-red-600">
+              This will permanently delete:
+            </p>
+            <ul className="mt-2 text-sm text-red-600 list-disc list-inside space-y-1">
+              <li>All tenant records and their data</li>
+              <li>All uploaded documents and photos</li>
+              <li>All maintenance requests</li>
+              <li>All rent collection records</li>
+              <li>All expense records</li>
+            </ul>
           </div>
-        </CardContent>
-      </Card>
+          <DialogFooter className="mt-6">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteRecordOpen(false)}
+              className="border-luxury-cream hover:bg-luxury-cream/20"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (confirm("Please type DELETE to confirm")) {
+                  deleteFlatMutation.mutate();
+                }
+              }}
+              disabled={deleteFlatMutation.isPending}
+            >
+              {deleteFlatMutation.isPending ? "Deleting..." : "Delete Property"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={deleteRentOpen} onOpenChange={setDeleteRentOpen}>
+        <DialogContent className="bg-white border border-luxury-cream rounded-lg shadow-xl w-[95vw] max-w-md mx-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-luxury-charcoal">
+              Delete Rent Record
+            </DialogTitle>
+            <DialogDescription className="text-luxury-charcoal/70">
+              Are you sure you want to delete this rent record? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
+            <h4 className="text-red-600 font-medium mb-2 flex items-center">
+              <svg
+                className="h-5 w-5 mr-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+              Warning
+            </h4>
+            <p className="text-sm text-red-600">
+              This will permanently delete the rent record and all associated payment information.
+            </p>
+          </div>
+          <DialogFooter className="mt-6">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteRentOpen(false)}
+              className="border-luxury-cream hover:bg-luxury-cream/20"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (selectedRentId) {
+                  deleteRentMutation.mutate(selectedRentId);
+                  setDeleteRentOpen(false);
+                }
+              }}
+              disabled={deleteRentMutation.isPending}
+            >
+              {deleteRentMutation.isPending ? "Deleting..." : "Delete Record"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

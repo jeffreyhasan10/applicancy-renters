@@ -560,8 +560,27 @@ export default function FurnitureManager({
                     <SelectValue placeholder="Select inventory item" />
                   </SelectTrigger>
                   <SelectContent>
+                    <div className="flex items-center px-3 pb-2">
+                      <Input
+                        type="text"
+                        placeholder="Search items..."
+                        className="h-8"
+                        onChange={(e) => {
+                          const searchValue = e.target.value.toLowerCase();
+                          const items = document.querySelectorAll('[data-select-item]');
+                          items.forEach((item) => {
+                            const text = item.textContent?.toLowerCase() || '';
+                            if (text.includes(searchValue)) {
+                              (item as HTMLElement).style.display = '';
+                            } else {
+                              (item as HTMLElement).style.display = 'none';
+                            }
+                          });
+                        }}
+                      />
+                    </div>
                     {inventoryItems.map((item) => (
-                      <SelectItem key={item.id} value={item.id} disabled={item.available_quantity === 0}>
+                      <SelectItem key={item.id} value={item.id} disabled={item.available_quantity === 0} data-select-item>
                         {item.name} (Available: {item.available_quantity})
                       </SelectItem>
                     ))}
