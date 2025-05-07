@@ -470,57 +470,85 @@ export type Database = {
       }
       rents: {
         Row: {
-          amount: number
-          created_at: string
-          custom_message: string | null
-          due_date: string
-          id: string
-          is_paid: boolean
-          paid_on: string | null
-          tenant_id: string
-          whatsapp_sent: boolean
-          flat_id: string
-        }
+          id: string;
+          tenant_id: string;
+          flat_id: string;
+          amount: number;
+          due_date: string;
+          is_paid: boolean;
+          paid_on: string | null;
+          whatsapp_sent: boolean;
+          custom_message: string | null;
+          created_at: string;
+          payment_frequency: 'one_time' | 'monthly' | null;
+          reminder_day: number | null;
+          last_reminder_date: string | null;
+        };
         Insert: {
-          amount: number
-          created_at?: string
-          custom_message?: string | null
-          due_date: string
-          id?: string
-          is_paid?: boolean
-          paid_on?: string | null
-          tenant_id: string
-          whatsapp_sent?: boolean
-          flat_id: string
-        }
+          id?: string;
+          tenant_id: string;
+          flat_id: string;
+          amount: number;
+          due_date: string;
+          is_paid?: boolean;
+          paid_on?: string | null;
+          whatsapp_sent?: boolean;
+          custom_message?: string | null;
+          created_at?: string;
+          payment_frequency?: 'one_time' | 'monthly' | null;
+          reminder_day?: number | null;
+          last_reminder_date?: string | null;
+        };
         Update: {
-          amount?: number
-          created_at?: string
-          custom_message?: string | null
-          due_date?: string
-          id?: string
-          is_paid?: boolean
-          paid_on?: string | null
-          tenant_id?: string
-          whatsapp_sent?: boolean
-          flat_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "rents_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "rents_flat_id_fkey"
-            columns: ["flat_id"]
-            isOneToOne: false
-            referencedRelation: "flats"
-            referencedColumns: ["id"]
-          }
-        ]
+          id?: string;
+          tenant_id?: string;
+          flat_id?: string;
+          amount?: number;
+          due_date?: string;
+          is_paid?: boolean;
+          paid_on?: string | null;
+          whatsapp_sent?: boolean;
+          custom_message?: string | null;
+          created_at?: string;
+          payment_frequency?: 'one_time' | 'monthly' | null;
+          reminder_day?: number | null;
+          last_reminder_date?: string | null;
+        };
+      }
+      rent_reminders: {
+        Row: {
+          id: string;
+          rent_id: string;
+          tenant_id: string;
+          next_reminder_date: string;
+          reminder_day: number;
+          is_active: boolean;
+          amount: number;
+          message_template: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          rent_id: string;
+          tenant_id: string;
+          next_reminder_date: string;
+          reminder_day: number;
+          is_active?: boolean;
+          amount: number;
+          message_template: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          rent_id?: string;
+          tenant_id?: string;
+          next_reminder_date?: string;
+          reminder_day?: number;
+          is_active?: boolean;
+          amount?: number;
+          message_template?: string;
+          created_at?: string;
+        };
       }
       tenant_furniture: {
         Row: {

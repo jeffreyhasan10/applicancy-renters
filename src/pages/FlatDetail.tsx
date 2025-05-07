@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -271,6 +272,8 @@ const FlatDetail = () => {
   const [rentAmount, setRentAmount] = useState<string>("");
   const [rentDescription, setRentDescription] = useState<string>("Rent Payment");
   const [expiryDays, setExpiryDays] = useState<string>("7");
+  const [isRecurring, setIsRecurring] = useState<boolean>(false);
+  const [reminderDay, setReminderDay] = useState<string>("1");
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
   const [paymentLinksData, setPaymentLinksData] = useState<PaymentLinkData[]>([]);
   const [rentStatusFilter, setRentStatusFilter] = useState("all");
@@ -803,10 +806,14 @@ const FlatDetail = () => {
       amount,
       description,
       expiryDays,
+      isRecurring,
+      reminderDay,
     }: {
       amount: number;
       description: string;
       expiryDays: number;
+      isRecurring: boolean;
+      reminderDay: number;
     }) => {
       if (!flat?.tenants || flat.tenants.length === 0) {
         throw new Error("No tenants assigned to this flat");
@@ -834,6 +841,9 @@ const FlatDetail = () => {
             whatsapp_sent: false,
             custom_message: description,
             created_at: new Date().toISOString(),
+            payment_frequency: isRecurring ? "monthly" : "one_time",
+            reminder_day: isRecurring ? reminderDay : null,
+            last_reminder_date: null,
           })
           .select("id")
           .single();
@@ -870,6 +880,7 @@ const FlatDetail = () => {
           .eq("id", linkData.id);
         if (updateError) throw new Error(updateError.message);
 
+        // Create initial WhatsApp message
         await typedSupabase.from("whatsapp_messages").insert({
           tenant_id: tenant.id,
           rent_id: rentData.id,
@@ -878,6 +889,25 @@ const FlatDetail = () => {
           sent_at: new Date().toISOString(),
           included_payment_link: true,
         });
+
+        // If recurring is enabled, schedule the first reminder
+        if (isRecurring) {
+          const nextReminderDate = new Date();
+          nextReminderDate.setDate(reminderDay);
+          if (nextReminderDate < new Date()) {
+            nextReminderDate.setMonth(nextReminderDate.getMonth() + 1);
+          }
+
+          await typedSupabase.from("rent_reminders").insert({
+            rent_id: rentData.id,
+            tenant_id: tenant.id,
+            next_reminder_date: nextReminderDate.toISOString().split("T")[0],
+            reminder_day: reminderDay,
+            is_active: true,
+            amount,
+            message_template: `Dear ${tenant.name}, your monthly rent of ₹${amount} for ${flat.name} is due. Please ensure timely payment.`,
+          });
+        }
 
         paymentLinks.push({
           link: paymentLink,
@@ -4037,10 +4067,10 @@ const FlatDetail = () => {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (parseFloat(rentAmount) !== flat.monthly_rent_target) {
+                if (!rentAmount || parseFloat(rentAmount) <= 0) {
                   toast({
                     title: "Invalid Amount",
-                    description: `Rent amount must match the monthly target of ₹${flat.monthly_rent_target}`,
+                    description: "Please enter a valid amount greater than 0",
                     variant: "destructive",
                   });
                   return;
@@ -4049,6 +4079,8 @@ const FlatDetail = () => {
                   amount: Number(rentAmount),
                   description: rentDescription,
                   expiryDays: Number(expiryDays),
+                  isRecurring,
+                  reminderDay: Number(reminderDay),
                 });
               }}
               className="space-y-6 mt-4"
@@ -4068,12 +4100,13 @@ const FlatDetail = () => {
                       required
                       className="pl-7 border-luxury-cream focus:ring-luxury-gold"
                       placeholder="Enter rent amount"
-                      readOnly
                     />
                   </div>
-                  <p className="text-sm text-luxury-charcoal/70 mt-1">
-                    Monthly rent target is fixed at ₹{flat.monthly_rent_target?.toLocaleString()}
-                  </p>
+                  {flat.monthly_rent_target && (
+                    <p className="text-sm text-luxury-charcoal/70 mt-1">
+                      Monthly rent target is ₹{flat.monthly_rent_target?.toLocaleString()} (optional)
+                    </p>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <Label htmlFor="rentDescription" className="text-luxury-charcoal">
@@ -4087,7 +4120,7 @@ const FlatDetail = () => {
                     placeholder="Enter description (e.g., Rent Payment)"
                   />
                 </div>
-                <div className="sm:col-span-2">
+                <div>
                   <Label htmlFor="expiryDays" className="text-luxury-charcoal">
                     Link Expiry (Days)
                   </Label>
@@ -4101,6 +4134,36 @@ const FlatDetail = () => {
                     className="mt-1.5 border-luxury-cream focus:ring-luxury-gold"
                     placeholder="Enter expiry days"
                   />
+                </div>
+                <div>
+                  <Label htmlFor="reminderDay" className="text-luxury-charcoal">
+                    Monthly Reminder Day
+                  </Label>
+                  <Input
+                    id="reminderDay"
+                    type="number"
+                    value={reminderDay}
+                    onChange={(e) => setReminderDay(e.target.value)}
+                    min="1"
+                    max="31"
+                    className="mt-1.5 border-luxury-cream focus:ring-luxury-gold"
+                    placeholder="Day of month (1-31)"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="isRecurring"
+                      checked={isRecurring}
+                      onCheckedChange={(checked) => setIsRecurring(checked as boolean)}
+                    />
+                    <Label htmlFor="isRecurring" className="text-luxury-charcoal">
+                      Enable Monthly Recurring Reminders
+                    </Label>
+                  </div>
+                  <p className="text-sm text-luxury-charcoal/70 mt-1">
+                    Automatically send rent reminders every month on the specified day
+                  </p>
                 </div>
               </div>
               <DialogFooter className="sm:justify-between gap-4 pt-4">
