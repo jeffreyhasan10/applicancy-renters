@@ -58,12 +58,14 @@ interface DashboardStats {
   totalFlats: number;
   occupiedFlats: number;
   totalSecurityDeposit: number;
+  totalRentTarget: number;
   comparisons: {
     expenses: number;
     pendingRents: number;
     revenue: number;
     flats: number;
     securityDeposit: number;
+    rentTarget: number;
   };
 }
 
@@ -78,6 +80,40 @@ interface Stat {
   iconBg?: string;
 }
 
+interface Flat {
+  id: string;
+  security_deposit: number | null;
+  monthly_rent_target: number;
+}
+
+interface PageHeaderProps {
+  title: string;
+  description: string;
+  className?: string;
+  onActionClick?: () => void;
+  actionLabel?: string;
+}
+
+interface RecentActivitiesProps {
+  className?: string;
+}
+
+interface RentCollectionProps {
+  className?: string;
+}
+
+interface FormProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}
+
+interface RentFormProps extends FormProps {}
+interface InventoryFormProps extends FormProps {}
+interface ReminderFormProps extends FormProps {}
+interface ExpenseFormProps extends FormProps {}
+interface FlatFormProps extends FormProps {}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
     totalExpenses: 0,
@@ -86,12 +122,14 @@ export default function Dashboard() {
     totalFlats: 0,
     occupiedFlats: 0,
     totalSecurityDeposit: 0,
+    totalRentTarget: 0,
     comparisons: {
       expenses: 0,
       pendingRents: 0,
       revenue: 0,
       flats: 0,
       securityDeposit: 0,
+      rentTarget: 0,
     },
   });
   const [loading, setLoading] = useState(true);
@@ -153,12 +191,12 @@ export default function Dashboard() {
       if (lastYearExpensesError) throw new Error(lastYearExpensesError.message);
 
       const totalExpenses = (expensesData || []).reduce(
-        (sum, expense) => sum + (parseFloat(expense.amount) || 0),
+        (sum, expense) => sum + Number(expense.amount || 0),
         0
       );
 
       const lastYearExpenses = (lastYearExpensesData || []).reduce(
-        (sum, expense) => sum + (parseFloat(expense.amount) || 0),
+        (sum, expense) => sum + Number(expense.amount || 0),
         0
       );
 
@@ -206,13 +244,13 @@ export default function Dashboard() {
         throw new Error(lastMonthPendingRentsError.message);
 
       const pendingRentsAmount = (pendingRentsData || []).reduce(
-        (sum, rent) => sum + (parseFloat(rent.amount) || 0),
+        (sum, rent) => sum + Number(rent.amount || 0),
         0
       );
 
       const lastMonthPendingRentsAmount = (
         lastMonthPendingRentsData || []
-      ).reduce((sum, rent) => sum + (parseFloat(rent.amount) || 0), 0);
+      ).reduce((sum, rent) => sum + Number(rent.amount || 0), 0);
 
       const pendingRentsComparison =
         lastMonthPendingRentsAmount > 0
@@ -252,11 +290,11 @@ export default function Dashboard() {
               rent.paid_on >= format(dateRange.from, "yyyy-MM-dd") &&
               rent.paid_on <= format(dateRange.to, "yyyy-MM-dd"))
         )
-        .reduce((sum, rent) => sum + (parseFloat(rent.amount) || 0), 0);
+        .reduce((sum, rent) => sum + Number(rent.amount || 0), 0);
 
       const lastMonthRevenue = (revenueData || [])
         .filter((rent) => rent.paid_on?.startsWith(lastMonthString))
-        .reduce((sum, rent) => sum + (parseFloat(rent.amount) || 0), 0);
+        .reduce((sum, rent) => sum + Number(rent.amount || 0), 0);
 
       const revenueComparison =
         lastMonthRevenue > 0
@@ -266,21 +304,43 @@ export default function Dashboard() {
       // Fetch total flats
       const { data: flatsData, error: flatsError } = await supabase
         .from("flats")
-        .select("id, security_deposit");
+        .select("id, security_deposit, monthly_rent_target") as { 
+          data: Flat[] | null; 
+          error: any 
+        };
 
       if (flatsError) throw new Error(flatsError.message);
 
       const { data: lastMonthFlatsData, error: lastMonthFlatsError } =
         await supabase
           .from("flats")
-          .select("id")
-          .lte("created_at", lastMonthDate);
+          .select("id, monthly_rent_target")
+          .lte("created_at", lastMonthDate) as {
+            data: Pick<Flat, "id" | "monthly_rent_target">[] | null;
+            error: any
+          };
 
       if (lastMonthFlatsError) throw new Error(lastMonthFlatsError.message);
 
+      // Calculate total rent target
+      const totalRentTarget = (flatsData || []).reduce(
+        (sum, flat) => sum + (flat.monthly_rent_target || 0),
+        0
+      );
+
+      const lastMonthRentTarget = (lastMonthFlatsData || []).reduce(
+        (sum, flat) => sum + (flat.monthly_rent_target || 0),
+        0
+      );
+
+      const rentTargetComparison =
+        lastMonthRentTarget > 0
+          ? ((totalRentTarget - lastMonthRentTarget) / lastMonthRentTarget) * 100
+          : 0;
+
       // Fetch security deposit
       const totalSecurityDeposit = (flatsData || []).reduce(
-        (sum, flat) => sum + (parseFloat(flat.security_deposit) || 0),
+        (sum, flat) => sum + (flat.security_deposit || 0),
         0
       );
 
@@ -288,12 +348,15 @@ export default function Dashboard() {
         await supabase
           .from("flats")
           .select("security_deposit")
-          .lte("created_at", lastMonthDate);
+          .lte("created_at", lastMonthDate) as {
+            data: Pick<Flat, "security_deposit">[] | null;
+            error: any
+          };
 
       if (lastMonthSecurityError) throw new Error(lastMonthSecurityError.message);
 
       const lastMonthSecurityDeposit = (lastMonthSecurityDeposits || []).reduce(
-        (sum, flat) => sum + (parseFloat(flat.security_deposit) || 0),
+        (sum, flat) => sum + (flat.security_deposit || 0),
         0
       );
 
@@ -339,12 +402,14 @@ export default function Dashboard() {
         totalFlats: flatsData?.length || 0,
         occupiedFlats: uniqueOccupiedFlats.length,
         totalSecurityDeposit,
+        totalRentTarget,
         comparisons: {
           expenses: expenseComparison,
           pendingRents: pendingRentsComparison,
           revenue: revenueComparison,
           flats: flatsComparison,
           securityDeposit: securityDepositComparison,
+          rentTarget: rentTargetComparison,
         },
       });
     } catch (error: any) {
@@ -390,6 +455,17 @@ export default function Dashboard() {
   };
 
   const formattedStats: Stat[] = [
+    {
+      title: "Total Monthly Rent",
+      value: loading ? "..." : `₹${stats.totalRentTarget.toLocaleString()}`,
+      description: "Total monthly rent target",
+      icon: <IndianRupee className="h-6 w-6 text-indigo-600" />,
+      trendValue: stats.comparisons.rentTarget,
+      trendText: "from last month",
+      className:
+        "border-indigo-200 bg-white hover:bg-indigo-50 transition-colors duration-300",
+      iconBg: "bg-indigo-100",
+    },
     {
       title: "Total Expenses",
       value: loading ? "..." : `₹${stats.totalExpenses.toLocaleString()}`,
@@ -674,9 +750,11 @@ export default function Dashboard() {
       className="p-4 sm:p-6 lg:p-8 bg-gradient-to-b from-blue-50 via-white to-slate-50 min-h-screen max-w-full overflow-x-hidden"
     >
       <PageHeader
-        title="Dashboard"
-        description="Welcome to your Applicancy Renters"
-        className="mb-6 sm:mb-8"
+        {...{
+          title: "Dashboard",
+          description: "Welcome to your Applicancy Renters",
+          className: "mb-6 sm:mb-8"
+        } as PageHeaderProps}
       />
 
       {/* Stat Cards */}
@@ -750,7 +828,7 @@ export default function Dashboard() {
                 Monthly Collection Overview
               </h3>
             </div>
-            <RentCollection className="p-4 sm:p-6" />
+            <RentCollection {...{ className: "p-4 sm:p-6" } as RentCollectionProps} />
           </div>
         </div>
         <div>
@@ -769,7 +847,7 @@ export default function Dashboard() {
                 Latest Updates
               </h3>
             </div>
-            <RecentActivities className="p-4 sm:p-6" />
+            <RecentActivities {...{ className: "p-4 sm:p-6" } as RecentActivitiesProps} />
           </div>
         </div>
       </motion.div>
@@ -842,7 +920,9 @@ export default function Dashboard() {
                         from: filterDateRange.from,
                         to: filterDateRange.to,
                       }}
-                      onSelect={(range) => setFilterDateRange(range || { from: undefined, to: undefined })}
+                      onSelect={(range: { from: Date | undefined; to: Date | undefined } | undefined) => 
+                        setFilterDateRange(range || { from: undefined, to: undefined })
+                      }
                       className="rounded-md border"
                     />
                   </div>
@@ -870,39 +950,44 @@ export default function Dashboard() {
 
       {/* Forms */}
       <ExpenseForm
-        open={modalStates.expense}
-        onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, expense: open }))
-        }
-        onSuccess={handleFormSuccess}
+        {...{
+          open: modalStates.expense,
+          onOpenChange: (open) =>
+            setModalStates((prev) => ({ ...prev, expense: open })),
+          onSuccess: handleFormSuccess
+        } as ExpenseFormProps}
       />
       <FlatForm
-        open={modalStates.flat}
-        onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, flat: open }))
-        }
-        onSuccess={handleFormSuccess}
+        {...{
+          open: modalStates.flat,
+          onOpenChange: (open) =>
+            setModalStates((prev) => ({ ...prev, flat: open })),
+          onSuccess: handleFormSuccess
+        } as FlatFormProps}
       />
       <RentForm
-        open={modalStates.rent}
-        onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, rent: open }))
-        }
-        onSuccess={handleFormSuccess}
+        {...{
+          open: modalStates.rent,
+          onOpenChange: (open) =>
+            setModalStates((prev) => ({ ...prev, rent: open })),
+          onSuccess: handleFormSuccess
+        } as RentFormProps}
       />
       <InventoryForm
-        open={modalStates.inventory}
-        onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, inventory: open }))
-        }
-        onSuccess={handleFormSuccess}
+        {...{
+          open: modalStates.inventory,
+          onOpenChange: (open) =>
+            setModalStates((prev) => ({ ...prev, inventory: open })),
+          onSuccess: handleFormSuccess
+        } as InventoryFormProps}
       />
       <ReminderForm
-        open={modalStates.reminder}
-        onOpenChange={(open) =>
-          setModalStates((prev) => ({ ...prev, reminder: open }))
-        }
-        onSuccess={handleFormSuccess}
+        {...{
+          open: modalStates.reminder,
+          onOpenChange: (open) =>
+            setModalStates((prev) => ({ ...prev, reminder: open })),
+          onSuccess: handleFormSuccess
+        } as ReminderFormProps}
       />
     </motion.div>
   );
