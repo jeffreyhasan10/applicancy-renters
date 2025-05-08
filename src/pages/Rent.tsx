@@ -670,7 +670,23 @@ export default function Rent() {
   // Custom message modal
   const openCustomMessageModal = (rent: any) => {
     setSelectedRent(rent);
-    setCustomMessageText(rent.customMessage || "");
+    const month = format(new Date(rent.due_date), "MMMM");
+    const dueDate = format(new Date(rent.due_date), "dd MMM yyyy");
+    const amount = rent.amount.toLocaleString();
+    
+    const defaultMessage = `Dear Customer,
+Greetings!
+
+Upcoming payment of your monthly furniture rent for month of ${month} is due on *${dueDate}*
+
+Payment due is *Rs ${amount}*
+
+Please pay the rent to avoid any miss payment.
+
+Thank you
+*Applicancy Renters*`;
+
+    setCustomMessageText(rent.custom_message || defaultMessage);
     setCustomMessageModalOpen(true);
   };
 
@@ -1403,7 +1419,7 @@ export default function Rent() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <p className="text-sm text-gray-600">
-              Customize the WhatsApp message for {selectedRent?.tenant || "tenant"}
+              Customize the WhatsApp message for {selectedRent?.tenants?.name || "tenant"}
             </p>
             <textarea
               className="w-full border border-gray-300 rounded-lg p-3 h-32 focus:ring-2 focus:ring-indigo-500 resize-none"
@@ -1412,6 +1428,9 @@ export default function Rent() {
               placeholder="Type your custom message here..."
               aria-label="Custom message text"
             ></textarea>
+            <p className="text-xs text-gray-500">
+              Note: The message will be sent with the same format as the default reminder.
+            </p>
           </div>
           <div className="flex justify-end space-x-3">
             <Button
