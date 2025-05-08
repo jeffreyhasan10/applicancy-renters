@@ -27,7 +27,7 @@ export const generateRentReminderMessage = ({
   const monthsList = months?.join(", ") || format(parseISO(dueDate), "MMMM yyyy");
   const totalAmount = months ? amount * months.length : amount;
 
-  let message = `Dear ${tenantName},\nGreetings!\n\n`;
+  let message = `Dear Customer,\nGreetings!\n\n`;
   message += `Upcoming payment of your monthly furniture rent for month of ${monthsList} is due on *${dueDateFormatted}*\n\n`;
   message += `Payment due is *Rs ${totalAmount.toLocaleString()}*\n\n`;
 
