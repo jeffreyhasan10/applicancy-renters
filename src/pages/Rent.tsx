@@ -522,7 +522,7 @@ export default function Rent() {
     try {
       await typedSupabase.from("whatsapp_messages").insert({
         tenant_id: tenantId,
-        flat_id: rentId.split("-")[0], // Assuming rentId is in format flatId-randomString
+        flat_id: rentId.split("-")[0],
         rent_id: rentId,
         message,
         recipient_phone: phone,

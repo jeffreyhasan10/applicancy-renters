@@ -28,8 +28,8 @@ export const generateRentReminderMessage = ({
   const totalAmount = months ? amount * months.length : amount;
 
   let message = `Dear ${tenantName},\nGreetings!\n\n`;
-  message += `Your rent payment for ${flatName} for the month of ${monthsList} was due on ${dueDateFormatted}\n\n`;
-  message += `Payment due is INR Rs ${totalAmount.toLocaleString()}\n\n`;
+  message += `Upcoming payment of your monthly furniture rent for month of ${monthsList} is due on *${dueDateFormatted}*\n\n`;
+  message += `Payment due is *Rs ${totalAmount.toLocaleString()}*\n\n`;
 
   if (inventoryItems && inventoryItems.length > 0) {
     message += `Inventory items:\n`;
@@ -45,8 +45,8 @@ export const generateRentReminderMessage = ({
     message += `Please make the payment using the link below:\n${paymentLink}\n\n`;
   }
 
-  message += `Please ensure timely payment to avoid any inconvenience.\n\n`;
-  message += `Thank you\nApplicancy Renters`;
+  message += `Please pay the rent to avoid any miss payment.\n\n`;
+  message += `Thank you\n*Applicancy Renters*`;
 
   return message;
 };
