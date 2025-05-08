@@ -77,6 +77,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { generateRentReminderMessage } from "@/utils/messageTemplates";
 
 type Flat = Database["public"]["Tables"]["flats"]["Row"];
 type MaintenanceRequest = Database["public"]["Tables"]["maintenance_requests"]["Row"];
@@ -1264,6 +1265,60 @@ const FlatDetail = () => {
       });
     },
   });
+
+  // Send reminder
+  const sendReminder = async (
+    rentId: string,
+    tenantId: string,
+    tenantName: string,
+    phone: string,
+    amount: number,
+    dueDate: string,
+    customMessage: string | null,
+    flatName: string
+  ) => {
+    let message = customMessage || generateRentReminderMessage({
+      tenantName,
+      flatName,
+      amount,
+      dueDate,
+      months: [format(new Date(dueDate), "MMMM yyyy")],
+    });
+
+    const formattedNumber = phone.startsWith("+") ? phone.substring(1) : phone;
+    const whatsappMessage = encodeURIComponent(message);
+    const whatsappURL = `https://wa.me/${formattedNumber}?text=${whatsappMessage}`;
+
+    try {
+      await typedSupabase.from("whatsapp_messages").insert({
+        tenant_id: tenantId,
+        flat_id: id,
+        rent_id: rentId,
+        message,
+        recipient_phone: phone,
+        sent_at: new Date().toISOString(),
+        status: "pending",
+      });
+
+      await typedSupabase.from("rents").update({
+        whatsapp_sent: true,
+        last_reminder_date: new Date().toISOString().slice(0, 10),
+      }).eq("id", rentId);
+
+      window.open(whatsappURL, "_blank");
+
+      toast({
+        title: "Reminder sent",
+        description: "The payment reminder has been sent successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to send reminder.",
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -2661,7 +2716,13 @@ const FlatDetail = () => {
                                     {rent.tenant?.phone && (
                                       <WhatsAppIntegration
                                         phone={rent.tenant.phone}
-                                        message={`Dear ${rent.tenant.name}, your rent payment of ₹${rent.amount.toLocaleString()} was due on ${format(new Date(rent.due_date), "dd MMM yyyy")}. Please make the payment at your earliest convenience.`}
+                                        message={generateRentReminderMessage({
+                                          tenantName: rent.tenant.name,
+                                          flatName: flat.name,
+                                          amount: rent.amount,
+                                          dueDate: rent.due_date,
+                                          months: [format(new Date(rent.due_date), "MMMM yyyy")],
+                                        })}
                                         buttonLabel="Send Reminder"
                                         buttonClassName="bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
                                       />

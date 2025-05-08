@@ -47,38 +47,58 @@ import RentForm from "@/components/forms/RentForm";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { Label } from "@/components/ui/label";
+import { generateRentReminderMessage } from "@/utils/messageTemplates";
 
-interface Rent {
+interface RentResponse {
   id: string;
   tenant_id: string;
   flat_id: string;
-  due_date: string;
   amount: number;
+  due_date: string;
   is_paid: boolean;
   paid_on: string | null;
   whatsapp_sent: boolean;
   custom_message: string | null;
+  created_at: string;
+  payment_frequency: 'one_time' | 'monthly' | null;
+  reminder_day: number | null;
   last_reminder_date: string | null;
-  notes: string | null;
-  calendar_event_id: string | null;
-  payment_frequency: string;
-  tenants?: {
+  tenants: {
     id: string;
     name: string;
     phone: string;
     flat_id: string;
-  };
-  flats?: {
+  } | null;
+  flats: {
     id: string;
     name: string;
     address: string;
     monthly_rent_target: number;
-  };
-  calendar_events?: {
+  } | null;
+  calendar_events: {
     id: string;
     start_date: string;
     end_date: string;
-  };
+  } | null;
+}
+
+interface RentWithUI extends Omit<RentResponse, 'tenants' | 'flats' | 'calendar_events'> {
+  tenant: string;
+  phone: string;
+  flatName: string;
+  flatAddress: string;
+  tenantCount: number;
+  dueDate: string;
+  dueMonth: string;
+  monthlyRentTarget: number | null;
+  status: "paid" | "pending";
+  paidOn: string | null;
+  whatsappSent: boolean;
+  customMessage: string | null;
+  lastReminderDate: string | null;
+  calendarStartDate: string | null;
+  calendarEndDate: string | null;
+  calendarMonth: string | null;
 }
 
 export default function Rent() {
@@ -86,7 +106,7 @@ export default function Rent() {
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [customMessageModalOpen, setCustomMessageModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [selectedRent, setSelectedRent] = useState<Rent | null>(null);
+  const [selectedRent, setSelectedRent] = useState<RentResponse | null>(null);
   const [customMessageText, setCustomMessageText] = useState("");
   const [selectedRents, setSelectedRents] = useState<string[]>([]);
   const [sortField, setSortField] = useState("due_date");
@@ -152,7 +172,7 @@ export default function Rent() {
   });
 
   // Fetch rent data with calendar events
-  const { data: rentData = { data: [], count: 0 }, isLoading } = useQuery({
+  const { data: rentData = { data: [], count: 0 }, isLoading } = useQuery<{ data: RentWithUI[]; count: number }>({
     queryKey: ["rents", filters, sortField, sortOrder, page],
     queryFn: async () => {
       let query = typedSupabase.from("rents").select(`
@@ -166,9 +186,9 @@ export default function Rent() {
         whatsapp_sent,
         custom_message,
         last_reminder_date,
-        notes,
-        calendar_event_id,
         payment_frequency,
+        created_at,
+        reminder_day,
         tenants (
           id,
           name,
@@ -217,7 +237,7 @@ export default function Rent() {
       if (error) throw error;
 
       return {
-        data: (data as Rent[])
+        data: (data as RentResponse[])
           .filter((rent) => rent.flats)
           .map((rent) => {
             const flat = flatsWithTenants.find((f) => f.id === rent.flat_id);
@@ -227,10 +247,8 @@ export default function Rent() {
             const calendarStartDate = rent.calendar_events?.start_date ? new Date(rent.calendar_events.start_date) : null;
             const calendarEndDate = rent.calendar_events?.end_date ? new Date(rent.calendar_events.end_date) : null;
 
-            return {
-              id: rent.id,
-              tenant_id: rent.tenant_id,
-              flat_id: rent.flat_id,
+            const rentWithUI: RentWithUI = {
+              ...rent,
               tenant: rent.tenants?.name || "No Tenant",
               phone: rent.tenants?.phone || "",
               flatName: rent.flats?.name || "Unknown",
@@ -238,20 +256,18 @@ export default function Rent() {
               tenantCount: flat?.tenant_count || 0,
               dueDate: dueDate ? format(dueDate, "MMM dd, yyyy") : "N/A",
               dueMonth: dueDate ? format(dueDate, "MMMM yyyy") : "N/A",
-              amount: rent.amount,
               monthlyRentTarget: rent.flats?.monthly_rent_target || null,
               status: rent.is_paid ? "paid" : "pending",
               paidOn: paidOn ? format(paidOn, "MMM dd, yyyy") : null,
               whatsappSent: rent.whatsapp_sent,
               customMessage: rent.custom_message,
               lastReminderDate: lastReminderDate ? format(lastReminderDate, "MMM dd, yyyy") : null,
-              notes: rent.notes,
-              calendarEventId: rent.calendar_event_id,
               calendarStartDate: calendarStartDate ? format(calendarStartDate, "MMM dd, yyyy") : null,
               calendarEndDate: calendarEndDate ? format(calendarEndDate, "MMM dd, yyyy") : null,
               calendarMonth: calendarStartDate ? format(calendarStartDate, "MMMM yyyy") : null,
-              paymentFrequency: rent.payment_frequency || "N/A",
             };
+
+            return rentWithUI;
           }),
         count: count || 0,
       };
@@ -401,18 +417,6 @@ export default function Rent() {
         throw new Error("Tenant is not associated with the selected flat.");
       }
 
-      const { error: transactionError } = await typedSupabase.from("payment_transactions").insert({
-        rent_id: id,
-        tenant_id: rentData.tenant_id,
-        amount: rentData.amount,
-        payment_date: currentDate,
-        payment_method: "cash",
-        transaction_reference: `Manual-${Date.now()}`,
-        status: "paid",
-      });
-
-      if (transactionError) throw transactionError;
-
       const { error } = await typedSupabase.from("rents").update({
         is_paid: true,
         paid_on: currentDate,
@@ -500,10 +504,16 @@ export default function Rent() {
     phone: string,
     amount: number,
     dueDate: string,
-    customMessage: string | null
+    customMessage: string | null,
+    flatName: string
   ) => {
-    let message = customMessage ||
-      `Hi ${tenantName}, your rent payment of ₹${amount.toLocaleString()} is due on ${dueDate}. Please make the payment at your earliest convenience.`;
+    let message = customMessage || generateRentReminderMessage({
+      tenantName,
+      flatName,
+      amount,
+      dueDate,
+      months: [format(new Date(dueDate), "MMMM yyyy")],
+    });
 
     const formattedNumber = phone.startsWith("+") ? phone.substring(1) : phone;
     const whatsappMessage = encodeURIComponent(message);
@@ -512,10 +522,11 @@ export default function Rent() {
     try {
       await typedSupabase.from("whatsapp_messages").insert({
         tenant_id: tenantId,
+        flat_id: rentId.split("-")[0], // Assuming rentId is in format flatId-randomString
+        rent_id: rentId,
         message,
         recipient_phone: phone,
         sent_at: new Date().toISOString(),
-        rent_id: rentId,
         status: "pending",
       });
 
@@ -552,7 +563,8 @@ export default function Rent() {
         rent.phone,
         rent.amount,
         rent.dueDate,
-        rent.customMessage
+        rent.customMessage,
+        rent.flatName
       );
     }
     setSelectedRents([]);
@@ -577,7 +589,7 @@ export default function Rent() {
       "Payment Date": rent.paidOn || "N/A",
       "Reminder Sent": rent.whatsappSent ? "Yes" : "No",
       "Last Reminder": rent.lastReminderDate || "N/A",
-      Notes: rent.notes || "N/A",
+      Notes: rent.customMessage || "N/A",
       "Calendar Event Start": rent.calendarStartDate || "N/A",
       "Calendar Event End": rent.calendarEndDate || "N/A",
       "Payment Frequency": rent.paymentFrequency,
@@ -1203,7 +1215,8 @@ export default function Rent() {
                                       rent.phone,
                                       rent.amount,
                                       rent.dueDate,
-                                      rent.customMessage
+                                      rent.customMessage,
+                                      rent.flatName
                                     )}
                                     title="Send Reminder"
                                     className="hover:bg-indigo-50 border-indigo-300 text-indigo-600"
@@ -1303,7 +1316,8 @@ export default function Rent() {
                                   rent.phone,
                                   rent.amount,
                                   rent.dueDate,
-                                  rent.customMessage
+                                  rent.customMessage,
+                                  rent.flatName
                                 )}
                                 className="flex-1"
                                 aria-label={`Send reminder to ${rent.tenant}`}

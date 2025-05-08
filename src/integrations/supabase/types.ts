@@ -664,6 +664,9 @@ export type Database = {
           recipient_phone: string
           sent_at: string | null
           tenant_id: string | null
+          flat_id: string | null
+          rent_id: string | null
+          status: string | null
         }
         Insert: {
           id?: string
@@ -672,6 +675,9 @@ export type Database = {
           recipient_phone: string
           sent_at?: string | null
           tenant_id?: string | null
+          flat_id?: string | null
+          rent_id?: string | null
+          status?: string | null
         }
         Update: {
           id?: string
@@ -680,6 +686,9 @@ export type Database = {
           recipient_phone?: string
           sent_at?: string | null
           tenant_id?: string | null
+          flat_id?: string | null
+          rent_id?: string | null
+          status?: string | null
         }
         Relationships: [
           {
@@ -689,6 +698,20 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "whatsapp_messages_flat_id_fkey"
+            columns: ["flat_id"]
+            isOneToOne: false
+            referencedRelation: "flats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_rent_id_fkey"
+            columns: ["rent_id"]
+            isOneToOne: false
+            referencedRelation: "rents"
+            referencedColumns: ["id"]
+          }
         ]
       }
       maintenance_requests: {

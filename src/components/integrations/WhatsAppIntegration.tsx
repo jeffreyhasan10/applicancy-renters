@@ -16,6 +16,11 @@ import { Clock, Send, RefreshCw } from "lucide-react";
 import type { Database } from "@/integrations/supabase/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format, parseISO, isValid } from "date-fns";
+import { generateRentReminderMessage } from "@/utils/messageTemplates";
+
+type Flat = Database["public"]["Tables"]["flats"]["Row"];
+type Reminder = Database["public"]["Tables"]["reminders"]["Row"];
+type FurnitureItem = Database["public"]["Tables"]["furniture_items"]["Row"];
 
 interface WhatsAppIntegrationProps {
   flatId?: string;
@@ -28,10 +33,6 @@ interface WhatsAppIntegrationProps {
   buttonClassName?: string;
   onClose?: () => void;
 }
-
-type Flat = Database["public"]["Tables"]["flats"]["Row"];
-type Reminder = Database["public"]["Tables"]["reminders"]["Row"];
-type FurnitureItem = Database["public"]["Tables"]["furniture_items"]["Row"];
 
 interface InventoryItem {
   id: string;
@@ -126,7 +127,7 @@ export default function WhatsAppIntegration({
       try {
         const { data, error } = await typedSupabase
           .from("flats")
-          .select("id, name, address, monthly_rent_target")
+          .select("*")
           .order("name", { ascending: true });
 
         if (error) throw error;
@@ -167,7 +168,7 @@ export default function WhatsAppIntegration({
       try {
         const { data, error } = await typedSupabase
           .from("reminders")
-          .select("id, title, due_date, description, priority")
+          .select("*")
           .eq("flat_id", selectedFlat)
           .order("due_date", { ascending: false });
 
@@ -196,18 +197,16 @@ export default function WhatsAppIntegration({
       try {
         const { data, error } = await typedSupabase
           .from("furniture_items")
-          .select("id, name, unit_rent")
+          .select("*")
           .eq("flat_id", selectedFlat);
 
         if (error) throw error;
 
-        const items = data
-          .map((item) => ({
-            id: item.id,
-            name: item.name,
-            rent: item.unit_rent || 0,
-          }))
-          .filter((item) => item.id && item.name);
+        const items = (data || []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          rent: item.unit_rent || 0,
+        }));
 
         setInventoryItems(items);
         setFurnitureItems(data);
@@ -267,36 +266,20 @@ export default function WhatsAppIntegration({
         return;
       }
 
-      const flat = flats.find((f) => f.id === selectedFlat);
-      const flatName = flat ? flat.name : "Property";
-      const totalAmount = parseFloat(rentAmount) * selectedMonths.length;
-      const monthsList = selectedMonths.join(", ");
-      const dueDateFormatted =
-        dueDate && isValid(parseISO(dueDate))
-          ? format(parseISO(dueDate), "dd MMM yyyy")
-          : "N/A";
+      const message = generateRentReminderMessage({
+        tenantName: "Property Manager", // Default recipient
+        flatName: propertyName,
+        amount: parseFloat(rentAmount),
+        dueDate,
+        months: selectedMonths,
+        paymentLink: paymentLink,
+        inventoryItems: inventoryItems.map(item => ({
+          name: item.name,
+          rent: item.rent
+        }))
+      });
 
-      let templateMessage = `Dear Property Manager,\nGreetings!\n\n`;
-      templateMessage += `Upcoming payment for ${flatName} for month of ${monthsList} was due on ${dueDateFormatted}\n\n`;
-      templateMessage += `Payment due is INR Rs ${totalAmount.toLocaleString()}\n\n`;
-      templateMessage += `Please Pay the rent to avoid any miss payment.\n\n`;
-
-      if (inventoryItems.length > 0) {
-        templateMessage += `Inventory items:\n`;
-        inventoryItems.forEach((item) => {
-          if (item.name && item.rent > 0) {
-            templateMessage += `- ${item.name}: ₹${item.rent.toLocaleString()}\n`;
-          }
-        });
-        templateMessage += "\n";
-      }
-
-      if (includePaymentLink && paymentLink) {
-        templateMessage += `Please make the payment using the link below:\n${paymentLink}\n\n`;
-      }
-
-      templateMessage += `Thank you\nApplicancy Renters`;
-      setMessage(templateMessage);
+      setMessage(message);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -350,7 +333,17 @@ export default function WhatsAppIntegration({
 
       let finalMessage = message;
       if (includePaymentLink && paymentLink && !message.includes(paymentLink)) {
-        finalMessage += `\n\nPayment Link: ${paymentLink}`;
+        finalMessage = generateRentReminderMessage({
+          tenantName: "Property Manager",
+          flatName: propertyName,
+          amount: parseFloat(rentAmount),
+          dueDate,
+          paymentLink,
+          inventoryItems: inventoryItems.map(item => ({
+            name: item.name,
+            rent: item.rent
+          }))
+        });
       }
 
       const { data, error } = await typedSupabase
