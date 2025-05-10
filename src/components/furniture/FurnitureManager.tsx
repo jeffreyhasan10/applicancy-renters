@@ -70,6 +70,7 @@ interface InventoryItem {
   total_quantity: number;
   available_quantity: number;
   unit_rent: number;
+  is_appliance: boolean;
 }
 
 interface Flat {
@@ -134,9 +135,7 @@ export default function FurnitureManager({
       const { data: furnitureData, error: furnitureError } = await supabase
         .from("furniture_items")
         .select("id, name, unit_rent, total_quantity, available_quantity, category, is_appliance")
-        .eq("flat_id", flatId)
-        .eq("category", "Furniture")
-        .eq("is_appliance", false);
+        .eq("flat_id", flatId);
 
       if (furnitureError) throw furnitureError;
 
@@ -183,9 +182,7 @@ export default function FurnitureManager({
     try {
       const { data, error } = await supabase
         .from("furniture_items")
-        .select("id, name, total_quantity, available_quantity, unit_rent")
-        .eq("category", "Furniture")
-        .eq("is_appliance", false)
+        .select("id, name, total_quantity, available_quantity, unit_rent, is_appliance")
         .or(`flat_id.is.null,available_quantity.gt.0`);
 
       if (error) throw error;
@@ -581,7 +578,7 @@ export default function FurnitureManager({
                     </div>
                     {inventoryItems.map((item) => (
                       <SelectItem key={item.id} value={item.id} disabled={item.available_quantity === 0} data-select-item>
-                        {item.name} (Available: {item.available_quantity})
+                        {item.name} ({item.is_appliance ? 'Appliance' : 'Furniture'}) (Available: {item.available_quantity})
                       </SelectItem>
                     ))}
                   </SelectContent>
