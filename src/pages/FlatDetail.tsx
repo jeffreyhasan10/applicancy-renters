@@ -1212,6 +1212,7 @@ const FlatDetail = () => {
         month,
         ...data,
       }))
+      .filter(summary => summary.total > 0) // Only months with at least one invoice
       .sort((a, b) => b.month.localeCompare(a.month));
   };
 
@@ -1321,6 +1322,38 @@ const FlatDetail = () => {
         description: error.message || "Failed to send reminder.",
       });
     }
+  };
+
+  const handleMarkAllPaid = (month: string) => {
+    const monthRents = (rents || []).filter(rent =>
+      format(new Date(rent.due_date), "yyyy-MM") === month
+    );
+    monthRents.forEach(rent => {
+      if (!rent.is_paid) {
+        updateRentStatusMutation.mutate({ rentId: rent.id, isPaid: true });
+      }
+    });
+  };
+
+  const handleMarkAllUnpaid = (month: string) => {
+    const monthRents = (rents || []).filter(rent =>
+      format(new Date(rent.due_date), "yyyy-MM") === month
+    );
+    monthRents.forEach(rent => {
+      if (rent.is_paid) {
+        updateRentStatusMutation.mutate({ rentId: rent.id, isPaid: false });
+      }
+    });
+  };
+
+  const handleDeleteAllRents = (month: string) => {
+    if (!window.confirm("Are you sure you want to delete all rent records for this month? This cannot be undone.")) return;
+    const monthRents = (rents || []).filter(rent =>
+      format(new Date(rent.due_date), "yyyy-MM") === month
+    );
+    monthRents.forEach(rent => {
+      deleteRentMutation.mutate(rent.id);
+    });
   };
 
   if (isLoading) {
@@ -2527,6 +2560,7 @@ const FlatDetail = () => {
                               <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Collected</th>
                               <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Pending</th>
                               <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Collection %</th>
+                              <th className="px-4 py-3 text-right text-sm font-medium text-luxury-charcoal">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2552,6 +2586,37 @@ const FlatDetail = () => {
                                                    "bg-red-100 text-red-700"}>
                                       {summary.percentage.toFixed(1)}%
                                     </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-right">
+                                    <div className="flex gap-1 justify-end">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-emerald-600 border-emerald-200"
+                                        onClick={() => handleMarkAllPaid(summary.month)}
+                                        disabled={updateRentStatusMutation.isPending}
+                                      >
+                                        Paid
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-red-600 border-red-200"
+                                        onClick={() => handleMarkAllUnpaid(summary.month)}
+                                        disabled={updateRentStatusMutation.isPending}
+                                      >
+                                        Unpaid
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        className="bg-red-600 text-white"
+                                        onClick={() => handleDeleteAllRents(summary.month)}
+                                        disabled={deleteRentMutation.isPending}
+                                      >
+                                        Delete
+                                      </Button>
+                                    </div>
                                   </td>
                                 </tr>
                               ))}
