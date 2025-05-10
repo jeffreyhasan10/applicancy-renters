@@ -74,6 +74,7 @@ interface RentResponse {
     name: string;
     address: string;
     monthly_rent_target: number;
+    created_at: string;
   } | null;
   calendar_events: {
     id: string;
@@ -99,6 +100,8 @@ interface RentWithUI extends Omit<RentResponse, 'tenants' | 'flats' | 'calendar_
   calendarStartDate: string | null;
   calendarEndDate: string | null;
   calendarMonth: string | null;
+  flatCreatedAt: string | null;
+  flatCreatedAtFormatted: string;
 }
 
 export default function Rent() {
@@ -199,7 +202,8 @@ export default function Rent() {
           id,
           name,
           address,
-          monthly_rent_target
+          monthly_rent_target,
+          created_at
         ),
         calendar_events (
           id,
@@ -265,6 +269,10 @@ export default function Rent() {
               calendarStartDate: calendarStartDate ? format(calendarStartDate, "MMM dd, yyyy") : null,
               calendarEndDate: calendarEndDate ? format(calendarEndDate, "MMM dd, yyyy") : null,
               calendarMonth: calendarStartDate ? format(calendarStartDate, "MMMM yyyy") : null,
+              flatCreatedAt: rent.flats?.created_at || null,
+              flatCreatedAtFormatted: rent.flats?.created_at
+                ? format(new Date(rent.flats.created_at), "MMM dd, yyyy")
+                : "N/A",
             };
 
             return rentWithUI;
@@ -582,7 +590,7 @@ export default function Rent() {
       Tenants: rent.tenantCount,
       Tenant: rent.tenant,
       Phone: rent.phone,
-      "Due Date": rent.dueDate,
+      "Due Date": rent.flatCreatedAtFormatted,
       Amount: rent.amount,
       "Target Rent": rent.monthlyRentTarget || "N/A",
       Status: rent.status === "paid" ? "Paid" : "Pending",
@@ -1142,9 +1150,9 @@ Thank you
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-                          onClick={() => handleSort("due_date")}
+                          onClick={() => handleSort("flatCreatedAtFormatted")}
                         >
-                          Due Date {sortField === "due_date" && <ChevronDown className="inline h-4 w-4" />}
+                          Due Date {sortField === "flatCreatedAtFormatted" && <ChevronDown className="inline h-4 w-4" />}
                         </th>
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
@@ -1202,7 +1210,7 @@ Thank you
                             <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 line-clamp-1">{rent.flatName}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.tenantCount}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600 line-clamp-1">{rent.tenant}</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.dueDate}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{rent.flatCreatedAtFormatted}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">₹{rent.amount.toLocaleString()}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">₹{rent.monthlyRentTarget?.toLocaleString() || "N/A"}</td>
                             <td className="px-4 py-3 whitespace-nowrap">
@@ -1314,7 +1322,7 @@ Thank you
                             <p><strong>Month:</strong> {rent.dueMonth}</p>
                             <p><strong>Flat:</strong> {rent.flatName}</p>
                             <p><strong>Tenant:</strong> {rent.tenant}</p>
-                            <p><strong>Due Date:</strong> {rent.dueDate}</p>
+                            <p><strong>Due Date:</strong> {rent.flatCreatedAtFormatted}</p>
                             <p><strong>Amount:</strong> ₹{rent.amount.toLocaleString()}</p>
                             <p><strong>Target Rent:</strong> ₹{rent.monthlyRentTarget?.toLocaleString() || "N/A"}</p>
                             <p><strong>Payment Date:</strong> {rent.paidOn || "-"}</p>
