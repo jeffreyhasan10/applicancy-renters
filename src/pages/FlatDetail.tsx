@@ -275,6 +275,7 @@ const FlatDetail = () => {
   const [expiryDays, setExpiryDays] = useState<string>("7");
   const [isRecurring, setIsRecurring] = useState<boolean>(false);
   const [reminderDay, setReminderDay] = useState<string>("1");
+  const [dueDate, setDueDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string | null>(null);
   const [paymentLinksData, setPaymentLinksData] = useState<PaymentLinkData[]>([]);
   const [rentStatusFilter, setRentStatusFilter] = useState("all");
@@ -809,12 +810,14 @@ const FlatDetail = () => {
       expiryDays,
       isRecurring,
       reminderDay,
+      dueDate,
     }: {
       amount: number;
       description: string;
       expiryDays: number;
       isRecurring: boolean;
       reminderDay: number;
+      dueDate: string;
     }) => {
       if (!flat?.tenants || flat.tenants.length === 0) {
         throw new Error("No tenants assigned to this flat");
@@ -837,7 +840,7 @@ const FlatDetail = () => {
             tenant_id: tenant.id,
             flat_id: id,
             amount,
-            due_date: new Date().toISOString().split("T")[0],
+            due_date: dueDate,
             is_paid: false,
             whatsapp_sent: false,
             custom_message: description,
@@ -4117,6 +4120,7 @@ const FlatDetail = () => {
                   onClick={() => {
                     setSendPaymentLinksOpen(false);
                     setPaymentLinksData([]);
+                    setDueDate(format(new Date(), "yyyy-MM-dd"));
                   }}
                   className="w-full sm:w-auto bg-luxury-gold text-luxury-charcoal hover:bg-luxury-gold/80"
                 >
@@ -4142,6 +4146,7 @@ const FlatDetail = () => {
                   expiryDays: Number(expiryDays),
                   isRecurring,
                   reminderDay: Number(reminderDay),
+                  dueDate,
                 });
               }}
               className="space-y-6 mt-4"
@@ -4168,6 +4173,19 @@ const FlatDetail = () => {
                       Monthly rent target is ₹{flat.monthly_rent_target?.toLocaleString()} (optional)
                     </p>
                   )}
+                </div>
+                <div className="sm:col-span-2">
+                  <Label htmlFor="dueDate" className="text-luxury-charcoal">
+                    Due Date
+                  </Label>
+                  <Input
+                    id="dueDate"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    required
+                    className="border-luxury-cream focus:ring-luxury-gold"
+                  />
                 </div>
                 <div className="sm:col-span-2">
                   <Label htmlFor="rentDescription" className="text-luxury-charcoal">

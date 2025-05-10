@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { typedSupabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -50,7 +50,7 @@ const initialFormData: FormData = {
   monthly_rent_target: "",
   security_deposit: "",
   description: "",
-  created_at: new Date().toISOString().split('T')[0]
+  created_at: new Date().toISOString().split("T")[0],
 };
 
 export default function FlatForm({ open = false, onOpenChange = () => {}, flat, onSuccess }: FlatFormProps) {
@@ -68,7 +68,9 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
         monthly_rent_target: (flat.monthly_rent_target || 0).toString(),
         security_deposit: (flat.security_deposit || "").toString(),
         description: flat.description || "",
-        created_at: flat.created_at ? new Date(flat.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+        created_at: flat.created_at
+          ? new Date(flat.created_at).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
       });
     } else {
       setFormData(initialFormData);
@@ -78,6 +80,8 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
 
   const validateForm = (): boolean => {
     const newErrors: Partial<FormData> = {};
+    const today = new Date("2025-05-10"); // Current date: May 10, 2025
+
     if (!formData.name.trim()) newErrors.name = "Flat name is required";
     if (!formData.address.trim()) newErrors.address = "Address is required";
     if (
@@ -93,6 +97,12 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
     ) {
       newErrors.security_deposit = "Please enter a valid security deposit amount";
     }
+    if (!formData.created_at) {
+      newErrors.created_at = "Created date is required";
+    } else if (new Date(formData.created_at) > today) {
+      newErrors.created_at = "Created date cannot be in the future";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -105,7 +115,7 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
         monthly_rent_target: parseFloat(data.monthly_rent_target) || 0,
         security_deposit: data.security_deposit ? parseFloat(data.security_deposit) : null,
         description: data.description.trim() || null,
-        created_at: data.created_at
+        created_at: data.created_at,
       };
 
       if (isEditing && flat) {
@@ -122,34 +132,18 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
           .select()
           .single();
         if (error) throw new Error(error.message || "Failed to create flat");
-
-        const { error: rentError } = await typedSupabase
-          .from("rents")
-          .insert({
-            tenant_id: null,
-            flat_id: newFlat.id,
-            amount: flatData.monthly_rent_target,
-            due_date: new Date().toISOString().split('T')[0],
-            is_paid: false,
-            created_at: new Date().toISOString(),
-            whatsapp_sent: false,
-            custom_message: "Initial pending rent for new flat"
-          });
-        
-        if (rentError) throw new Error(rentError.message || "Failed to create initial rent record");
-        
         return { success: true, id: newFlat.id };
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["flats"] });
       queryClient.invalidateQueries({ queryKey: ["flat", flat?.id] });
-      queryClient.invalidateQueries({ queryKey: ["rents"] });
+      queryClient.invalidateQueries({ queryKey: ["flats_with_tenants"] });
       toast({
         title: isEditing ? "Flat updated" : "Flat created",
         description: isEditing
           ? `${formData.name} has been updated successfully.`
-          : `${formData.name} has been added successfully with initial pending rent.`,
+          : `${formData.name} has been added successfully.`,
         className: "bg-luxury-gold text-luxury-charcoal border-none",
       });
       if (onSuccess) onSuccess();
@@ -323,7 +317,7 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
           {/* Created Date */}
           <div className="space-y-1.5">
             <Label htmlFor="created_at" className="text-sm font-medium text-luxury-charcoal">
-              Created Date
+              Created Date*
             </Label>
             <Input
               id="created_at"
@@ -331,8 +325,16 @@ export default function FlatForm({ open = false, onOpenChange = () => {}, flat, 
               type="date"
               value={formData.created_at}
               onChange={handleChange}
+              required
               className="border-luxury-cream focus:ring-luxury-gold focus:border-luxury-gold"
+              aria-invalid={!!errors.created_at}
+              aria-describedby={errors.created_at ? "created-at-error" : undefined}
             />
+            {errors.created_at && (
+              <p id="created-at-error" className="text-xs text-destructive mt-1">
+                {errors.created_at}
+              </p>
+            )}
           </div>
 
           <DialogFooter className="pt-2 flex gap-3">
