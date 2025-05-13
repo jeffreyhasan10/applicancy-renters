@@ -66,6 +66,33 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useSupabaseQuery, useSupabaseMutation } from "@/hooks/useSupabaseQuery";
+import { useQueryClient } from "@tanstack/react-query";
+import { Spinner } from "@/components/ui/spinner";
+
+// Add retry utility at the top of the file after imports
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const retryWithBackoff = async <T,>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> => {
+  let retries = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error?.code === "over_request_rate_limit" && retries < maxRetries) {
+        retries++;
+        const delay = baseDelay * Math.pow(2, retries - 1);
+        await wait(delay);
+        continue;
+      }
+      throw error;
+    }
+  }
+};
 
 interface InventoryItem {
   id: string;
@@ -142,13 +169,15 @@ function InventoryForm({
 
   const checkForExistingItem = async () => {
     try {
-      const { data, error } = await supabase
-        .from("furniture_items")
-        .select("*")
-        .eq("name", formData.name)
-        .eq("category", formData.is_appliance ? "Appliance" : "Furniture")
-        .eq("condition", formData.condition)
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("furniture_items")
+          .select("*")
+          .eq("name", formData.name)
+          .eq("category", formData.is_appliance ? "Appliance" : "Furniture")
+          .eq("condition", formData.condition)
+          .single();
+      });
 
       if (error && error.code !== "PGRST116") throw error;
       setExistingItem(data);
@@ -168,78 +197,22 @@ function InventoryForm({
     if (!validateForm()) return;
 
     try {
-      if (isEditMode && initialItem) {
-        const { error } = await supabase
-          .from("furniture_items")
-          .update({
-            name: formData.name,
-            category: formData.is_appliance ? "Appliance" : "Furniture",
-            condition: formData.condition,
-            purchase_date: formData.purchase_date,
-            purchase_price: formData.purchase_price,
-            unit_rent: formData.unit_rent,
-            total_quantity: formData.total_quantity,
-            available_quantity: formData.total_quantity,
-            is_appliance: formData.is_appliance,
-          })
-          .eq("id", initialItem.id);
-
-        if (error) throw error;
-        toast({
-          title: "Item updated",
-          description: `${formData.name} has been updated`,
-        });
-      } else {
-        if (existingItem) {
-          // Update existing item's quantity
-          const newTotalQuantity = existingItem.total_quantity + formData.total_quantity;
-          const newAvailableQuantity = existingItem.available_quantity + formData.total_quantity;
-
-          const { error } = await supabase
-            .from("furniture_items")
-            .update({
-              total_quantity: newTotalQuantity,
-              available_quantity: newAvailableQuantity,
-              purchase_date: formData.purchase_date,
-              purchase_price: formData.purchase_price,
-              unit_rent: formData.unit_rent,
-            })
-            .eq("id", existingItem.id);
-
-          if (error) throw error;
-          toast({
-            title: "Item quantity updated",
-            description: `Added ${formData.total_quantity} more ${formData.name}(s) to inventory`,
-          });
-        } else {
-          // Create new item
-          const { error } = await supabase.from("furniture_items").insert({
-            name: formData.name,
-            category: formData.is_appliance ? "Appliance" : "Furniture",
-            condition: formData.condition,
-            purchase_date: formData.purchase_date,
-            purchase_price: formData.purchase_price,
-            unit_rent: formData.unit_rent,
-            total_quantity: formData.total_quantity,
-            available_quantity: formData.total_quantity,
-            is_appliance: formData.is_appliance,
-          });
-
-          if (error) throw error;
-          toast({
-            title: "Item added",
-            description: `${formData.name} has been added to inventory`,
-          });
-        }
-      }
-
+      await addItemMutation.mutateAsync(formData);
+      
+      toast({
+        title: `Item ${isEditMode ? 'updated' : 'added'}`,
+        description: `${formData.name} has been ${isEditMode ? 'updated' : 'added'} successfully`,
+      });
+      
       onItemAdded();
       onOpenChange(false);
     } catch (error: any) {
       toast({
-        title: `Error ${isEditMode ? "updating" : "adding"} item`,
-        description: error.message,
-        variant: "destructive",
+        title: `Error ${isEditMode ? 'updating' : 'adding'} item`,
+        description: error.code === 'over_request_rate_limit'
+          ? 'Too many requests. Please try again in a moment.'
+          : error.message || 'An unexpected error occurred',
+        variant: 'destructive',
       });
     }
   };
@@ -388,145 +361,128 @@ export default function Inventory() {
     from: Date | null;
     to: Date | null;
   }>({ from: null, to: null });
+  const queryClient = useQueryClient();
 
-  const fetchInventoryItems = async () => {
-    try {
-      setLoading(true);
+  const {
+    data: inventoryItemsData,
+    isLoading,
+    isError,
+    error,
+    refetch
+  } = useSupabaseQuery(
+    ['inventory-items'],
+    async () => {
       // Fetch all furniture items
-      const { data: furnitureData, error: furnitureError } = await supabase
-        .from("furniture_items")
-        .select(`
-          id,
-          name,
-          category,
-          condition,
-          purchase_date,
-          purchase_price,
-          unit_rent,
-          total_quantity,
-          available_quantity,
-          flat_id,
-          flats (name)
-        `);
+      const { data: items, error: itemsError } = await supabase
+        .from('furniture_items')
+        .select('*, flats(name)')
+        .order('name');
 
-      if (furnitureError) throw furnitureError;
+      if (itemsError) {
+        return { data: null, error: itemsError };
+      }
 
       // Fetch associated calendar events
-      const furnitureIds = furnitureData.map((item) => item.id);
-      const { data: eventsData, error: eventsError } = await supabase
-        .from("calendar_events")
-        .select("id, related_id, start_date, end_date")
-        .eq("related_table", "furniture_items")
-        .in("related_id", furnitureIds);
+      const { data: events, error: eventsError } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .in(
+          'furniture_item_id',
+          items.map((item) => item.id)
+        );
 
-      if (eventsError) throw eventsError;
+      if (eventsError) {
+        return { data: null, error: eventsError };
+      }
 
-      // Map furniture items with their calendar events
-      const formattedItems: InventoryItem[] = furnitureData.map((item) => {
-        const event = eventsData.find((e) => e.related_id === item.id);
-        return {
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          condition: item.condition,
-          location: item.flats?.name || "Unassigned",
-          flat_id: item.flat_id,
-          flat_name: item.flats?.name || null,
-          purchase_date: format(new Date(item.purchase_date || item.created_at), "yyyy-MM-dd"),
-          purchase_price: parseFloat(item.purchase_price?.toString() || "0"),
-          unit_rent: parseFloat(item.unit_rent?.toString() || "0"),
-          total_quantity: item.total_quantity,
-          available_quantity: item.available_quantity,
-          calendar_event_id: event?.id,
-          event_start_date: event?.start_date,
-          event_end_date: event?.end_date,
-        };
-      });
+      // Combine the data
+      const itemsWithEvents = items.map((item) => ({
+        ...item,
+        flat_name: item.flats?.name || null,
+        calendar_event: events?.find((event) => event.furniture_item_id === item.id),
+      }));
 
-      setInventoryItems(formattedItems);
-    } catch (error: any) {
-      toast({
-        title: "Error fetching inventory",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
+      return { data: itemsWithEvents, error: null };
+    },
+    {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      retry: 5,
+      retryDelay: (failureCount) => Math.min(1000 * Math.pow(2, failureCount), 30000),
     }
-  };
+  );
 
-  useEffect(() => {
-    fetchInventoryItems();
-  }, []);
+  const addItemMutation = useSupabaseMutation(
+    async (formData: any) => {
+      if (formData.id) {
+        // Update existing item
+        return await supabase
+          .from('furniture_items')
+          .update({
+            name: formData.name,
+            category: formData.is_appliance ? 'Appliance' : 'Furniture',
+            condition: formData.condition,
+            purchase_date: formData.purchase_date,
+            purchase_price: formData.purchase_price,
+            unit_rent: formData.unit_rent,
+            total_quantity: formData.total_quantity,
+            available_quantity: formData.total_quantity,
+            is_appliance: formData.is_appliance,
+          })
+          .eq('id', formData.id);
+      } else {
+        // Create new item
+        return await supabase.from('furniture_items').insert({
+          name: formData.name,
+          category: formData.is_appliance ? 'Appliance' : 'Furniture',
+          condition: formData.condition,
+          purchase_date: formData.purchase_date,
+          purchase_price: formData.purchase_price,
+          unit_rent: formData.unit_rent,
+          total_quantity: formData.total_quantity,
+          available_quantity: formData.total_quantity,
+          is_appliance: formData.is_appliance,
+        });
+      }
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['inventory-items']);
+      },
+    }
+  );
 
-  // Real-time subscriptions
-  useEffect(() => {
-    const subscription = supabase
-      .channel("inventory_changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "furniture_items" },
-        () => fetchInventoryItems()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "calendar_events", filter: "related_table=eq.furniture_items" },
-        () => fetchInventoryItems()
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+  const deleteItemMutation = useSupabaseMutation(
+    async (id: string) => {
+      return await supabase.from('furniture_items').delete().eq('id', id);
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['inventory-items']);
+      },
+    }
+  );
 
   const handleDeleteItem = async () => {
     if (!itemToDelete) return;
 
     try {
-      const { data: assignments, error: assignError } = await supabase
-        .from("furniture_items")
-        .select("flat_id")
-        .eq("id", itemToDelete)
-        .single();
-
-      if (assignError) throw assignError;
-      if (assignments.flat_id) throw new Error("Cannot delete item assigned to a flat");
-
-      const { data: calendarEvent, error: eventError } = await supabase
-        .from("calendar_events")
-        .select("id")
-        .eq("related_table", "furniture_items")
-        .eq("related_id", itemToDelete)
-        .single();
-
-      if (eventError && eventError.code !== "PGRST116") throw eventError;
-      if (calendarEvent) {
-        await supabase.from("calendar_events").delete().eq("id", calendarEvent.id).eq("related_table", "furniture_items");
-      }
-
-      const { error } = await supabase
-        .from("furniture_items")
-        .delete()
-        .eq("id", itemToDelete);
-
-      if (error) throw error;
-
+      await deleteItemMutation.mutateAsync(itemToDelete);
+      
       toast({
-        title: "Item deleted",
-        description: "The inventory item has been successfully deleted",
+        title: 'Item deleted',
+        description: 'The inventory item has been successfully deleted',
       });
-
-      fetchInventoryItems();
-    } catch (error: any) {
-      toast({
-        title: "Error deleting item",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
+      
       setDeleteDialogOpen(false);
       setItemToDelete(null);
+    } catch (error: any) {
+      toast({
+        title: 'Error deleting item',
+        description: error.code === 'over_request_rate_limit'
+          ? 'Too many requests. Please try again in a moment.'
+          : error.message || 'An unexpected error occurred',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -1068,7 +1024,7 @@ export default function Inventory() {
             setDialogOpen(open);
             if (!open) setEditItem(null);
           }}
-          onItemAdded={fetchInventoryItems}
+          onItemAdded={() => {}}
           initialItem={editItem}
           isEditMode={!!editItem}
         />

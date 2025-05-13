@@ -52,6 +52,30 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 
+// Add retry utility at the top of the file after imports
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const retryWithBackoff = async <T,>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> => {
+  let retries = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error?.code === "over_request_rate_limit" && retries < maxRetries) {
+        retries++;
+        const delay = baseDelay * Math.pow(2, retries - 1);
+        await wait(delay);
+        continue;
+      }
+      throw error;
+    }
+  }
+};
+
 interface FurnitureItem {
   id: string;
   name: string;
@@ -62,6 +86,7 @@ interface FurnitureItem {
   calendar_event_id?: string;
   event_start_date?: string;
   event_end_date?: string;
+  flat_id?: string;
 }
 
 interface InventoryItem {
@@ -71,11 +96,27 @@ interface InventoryItem {
   available_quantity: number;
   unit_rent: number;
   is_appliance: boolean;
+  flat_id?: string;
+  category?: string;
+  condition?: string;
+  purchase_date?: string;
+  purchase_price?: number;
 }
 
 interface Flat {
   id: string;
   monthly_rent_target: number;
+}
+
+interface FurnitureDataItem {
+  id: any;
+  name: any;
+  unit_rent: any;
+  total_quantity: any;
+  available_quantity: any;
+  category: any;
+  is_appliance: any;
+  flat_id: string | null;
 }
 
 interface FurnitureManagerProps {
@@ -98,7 +139,7 @@ export default function FurnitureManager({
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
   const [itemToUnassign, setItemToUnassign] = useState<FurnitureItem | null>(null);
-  const [roundoff, setRoundoff] = useState(0);
+  const [roundoff, setRoundoff] = useState<number>(0);
   const [assignFormData, setAssignFormData] = useState({
     inventory_item_id: "",
     quantity: 1,
@@ -110,18 +151,22 @@ export default function FurnitureManager({
   // Fetch flat details
   const fetchFlat = async () => {
     try {
-      const { data, error } = await supabase
-        .from("flats")
-        .select("id, monthly_rent_target")
-        .eq("id", flatId)
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("flats")
+          .select("id, monthly_rent_target")
+          .eq("id", flatId)
+          .single();
+      });
 
       if (error) throw error;
       setFlat(data);
     } catch (error: any) {
       toast({
         title: "Error fetching flat",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     }
@@ -131,26 +176,30 @@ export default function FurnitureManager({
   const fetchFurniture = async () => {
     try {
       setLoading(true);
-      // Fetch furniture items assigned to the flat
-      const { data: furnitureData, error: furnitureError } = await supabase
-        .from("furniture_items")
-        .select("id, name, unit_rent, total_quantity, available_quantity, category, is_appliance")
-        .eq("flat_id", flatId);
+      // Fetch furniture items assigned to the flat with retry
+      const { data: furnitureData, error: furnitureError } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("furniture_items")
+          .select("id, name, unit_rent, total_quantity, available_quantity, category, is_appliance, flat_id")
+          .eq("flat_id", flatId);
+      });
 
       if (furnitureError) throw furnitureError;
 
-      // Fetch associated calendar events
-      const furnitureIds = furnitureData.map((item) => item.id);
-      const { data: eventsData, error: eventsError } = await supabase
-        .from("calendar_events")
-        .select("id, related_id, start_date, end_date")
-        .eq("related_table", "furniture_items")
-        .in("related_id", furnitureIds);
+      // Fetch associated calendar events with retry
+      const furnitureIds = (furnitureData as FurnitureDataItem[]).map((item) => item.id);
+      const { data: eventsData, error: eventsError } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("calendar_events")
+          .select("id, related_id, start_date, end_date")
+          .eq("related_table", "furniture_items")
+          .in("related_id", furnitureIds);
+      });
 
       if (eventsError) throw eventsError;
 
       // Map furniture items with their calendar events
-      const formattedFurniture: FurnitureItem[] = furnitureData.map((item) => {
+      const formattedFurniture: FurnitureItem[] = (furnitureData as FurnitureDataItem[]).map((item) => {
         const event = eventsData.find((e) => e.related_id === item.id);
         return {
           id: item.id,
@@ -162,6 +211,7 @@ export default function FurnitureManager({
           calendar_event_id: event?.id,
           event_start_date: event?.start_date,
           event_end_date: event?.end_date,
+          flat_id: item.flat_id
         };
       });
 
@@ -169,7 +219,9 @@ export default function FurnitureManager({
     } catch (error: any) {
       toast({
         title: "Error fetching furniture",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     } finally {
@@ -180,17 +232,37 @@ export default function FurnitureManager({
   // Fetch inventory items (unassigned or partially available)
   const fetchInventoryItems = async () => {
     try {
-      const { data, error } = await supabase
-        .from("furniture_items")
-        .select("id, name, total_quantity, available_quantity, unit_rent, is_appliance")
-        .or(`flat_id.is.null,available_quantity.gt.0`);
+      const { data, error } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("furniture_items")
+          .select(`
+            id,
+            name,
+            total_quantity,
+            available_quantity,
+            unit_rent,
+            is_appliance,
+            flat_id,
+            category,
+            condition,
+            purchase_date,
+            purchase_price
+          `)
+          .or(`flat_id.is.null,available_quantity.gt.0`);
+      });
 
       if (error) throw error;
-      setInventoryItems(data || []);
+      const mappedItems: InventoryItem[] = (data || []).map(item => ({
+        ...item,
+        flat_id: item.flat_id
+      }));
+      setInventoryItems(mappedItems);
     } catch (error: any) {
       toast({
         title: "Error fetching inventory items",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     }
@@ -231,9 +303,15 @@ export default function FurnitureManager({
     const newErrors: { [key: string]: string } = {};
     if (!assignFormData.inventory_item_id) newErrors.inventory_item_id = "Please select an inventory item";
     if (assignFormData.quantity < 1) newErrors.quantity = "Quantity must be at least 1";
+    
     const selectedItem = inventoryItems.find((item) => item.id === assignFormData.inventory_item_id);
-    if (selectedItem && assignFormData.quantity > selectedItem.available_quantity)
-      newErrors.quantity = `Only ${selectedItem.available_quantity} available`;
+    
+    if (selectedItem) {
+      if (assignFormData.quantity > selectedItem.available_quantity) {
+        newErrors.quantity = `Only ${selectedItem.available_quantity} available`;
+      }
+    }
+    
     if (assignFormData.unit_rent < 0) newErrors.unit_rent = "Rent must be non-negative";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -248,71 +326,102 @@ export default function FurnitureManager({
       const selectedItem = inventoryItems.find((item) => item.id === assignFormData.inventory_item_id);
       if (!selectedItem) throw new Error("Selected inventory item not found");
 
-      // Check for existing assignment to this flat
-      const { data: existingItem, error: checkError } = await supabase
-        .from("furniture_items")
-        .select("id, available_quantity")
-        .eq("id", selectedItem.id)
-        .eq("flat_id", flatId)
-        .single();
+      // Check if we're trying to assign more than available
+      if (assignFormData.quantity > selectedItem.available_quantity) {
+        toast({
+          title: "Assignment Error",
+          description: `Cannot assign more than ${selectedItem.available_quantity} items`,
+          variant: "destructive",
+        });
+        return;
+      }
 
-      if (checkError && checkError.code !== "PGRST116") throw checkError;
-
-      if (existingItem) {
-        // Update existing assignment
-        const newAvailableQuantity = existingItem.available_quantity - assignFormData.quantity;
-        const { error: updateError } = await supabase
-          .from("furniture_items")
-          .update({
-            available_quantity: newAvailableQuantity,
-            unit_rent: assignFormData.unit_rent,
-          })
-          .eq("id", selectedItem.id);
+      // If the item is already assigned to this flat, update the assignment
+      if (selectedItem.flat_id === flatId) {
+        const { error: updateError } = await retryWithBackoff(async () => {
+          return await supabase
+            .from("furniture_items")
+            .update({
+              available_quantity: selectedItem.available_quantity - assignFormData.quantity,
+              unit_rent: assignFormData.unit_rent
+            })
+            .eq("id", selectedItem.id);
+        });
 
         if (updateError) throw updateError;
       } else {
-        // New assignment
-        const { error: updateError } = await supabase
-          .from("furniture_items")
-          .update({
-            flat_id: flatId,
-            available_quantity: selectedItem.available_quantity - assignFormData.quantity,
-            unit_rent: assignFormData.unit_rent,
-          })
-          .eq("id", selectedItem.id);
+        // If the item has available quantity, create a new assignment
+        // First, reduce the quantity from the original item
+        const { error: updateOriginalError } = await retryWithBackoff(async () => {
+          return await supabase
+            .from("furniture_items")
+            .update({
+              available_quantity: selectedItem.available_quantity - assignFormData.quantity
+            })
+            .eq("id", selectedItem.id);
+        });
 
-        if (updateError) throw updateError;
+        if (updateOriginalError) throw updateOriginalError;
+
+        // Then create a new furniture item for this flat with the assigned quantity
+        const newFurnitureItem = {
+          name: selectedItem.name,
+          category: selectedItem.category || "Furniture",
+          is_appliance: selectedItem.is_appliance,
+          unit_rent: assignFormData.unit_rent,
+          total_quantity: assignFormData.quantity,
+          available_quantity: 0, // All items are assigned
+          flat_id: flatId,
+          condition: selectedItem.condition || "used",
+          purchase_date: selectedItem.purchase_date || new Date().toISOString(),
+          purchase_price: selectedItem.purchase_price || 0
+        };
+
+        const { error: createError } = await retryWithBackoff(async () => {
+          return await supabase
+            .from("furniture_items")
+            .insert([newFurnitureItem]);
+        });
+
+        if (createError) throw createError;
       }
 
-      // Create calendar event
-      const { data: calendarEvent, error: eventError } = await supabase
-        .from("calendar_events")
-        .insert({
-          title: `Furniture Assignment: ${selectedItem.name}`,
-          description: `Assigned ${assignFormData.quantity} ${selectedItem.name}(s) to flat`,
-          start_date: new Date().toISOString(),
-          related_table: "furniture_items",
-          related_id: selectedItem.id,
-          flat_id: flatId,
-        })
-        .select("id")
-        .single();
+      // Create a calendar event for the assignment with retry
+      const calendarEvent = {
+        title: `${selectedItem.name} assigned to flat`,
+        start_date: new Date().toISOString(),
+        related_table: "furniture_items",
+        related_id: selectedItem.id,
+        flat_id: flatId,
+      };
 
-      if (eventError) throw eventError;
+      const { error: calendarError } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("calendar_events")
+          .insert([calendarEvent]);
+      });
+
+      if (calendarError) throw calendarError;
 
       toast({
-        title: "Furniture assigned",
-        description: `${assignFormData.quantity} ${selectedItem.name}(s) assigned to flat`,
+        title: "Success",
+        description: "Furniture item assigned successfully",
       });
 
       setAssignDialogOpen(false);
-      setAssignFormData({ inventory_item_id: "", quantity: 1, unit_rent: 0 });
+      setAssignFormData({
+        inventory_item_id: "",
+        quantity: 1,
+        unit_rent: 0,
+      });
       fetchFurniture();
       fetchInventoryItems();
     } catch (error: any) {
       toast({
         title: "Error assigning furniture",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     }
@@ -323,31 +432,34 @@ export default function FurnitureManager({
     if (!itemToUnassign) return;
 
     try {
-      // Update furniture_items to remove flat_id and increase available_quantity
-      const { error } = await supabase
-        .from("furniture_items")
-        .update({
-          flat_id: null,
-          available_quantity: itemToUnassign.available_quantity + itemToUnassign.assigned_quantity,
-        })
-        .eq("id", itemToUnassign.id);
+      // Update the furniture item to remove flat assignment with retry
+      const { error: updateError } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("furniture_items")
+          .update({
+            flat_id: null,
+            available_quantity: itemToUnassign.total_quantity
+          })
+          .eq("id", itemToUnassign.id);
+      });
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      // Delete associated calendar event
+      // Delete associated calendar event if it exists with retry
       if (itemToUnassign.calendar_event_id) {
-        const { error: eventError } = await supabase
-          .from("calendar_events")
-          .delete()
-          .eq("id", itemToUnassign.calendar_event_id)
-          .eq("related_table", "furniture_items");
+        const { error: deleteError } = await retryWithBackoff(async () => {
+          return await supabase
+            .from("calendar_events")
+            .delete()
+            .eq("id", itemToUnassign.calendar_event_id);
+        });
 
-        if (eventError) throw eventError;
+        if (deleteError) throw deleteError;
       }
 
       toast({
-        title: "Furniture unassigned",
-        description: `${itemToUnassign.name} has been unassigned from flat`,
+        title: "Success",
+        description: "Furniture item unassigned successfully",
       });
 
       setUnassignDialogOpen(false);
@@ -357,7 +469,9 @@ export default function FurnitureManager({
     } catch (error: any) {
       toast({
         title: "Error unassigning furniture",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     }
@@ -375,10 +489,12 @@ export default function FurnitureManager({
     }
 
     try {
-      const { error } = await supabase
-        .from("furniture_items")
-        .update({ unit_rent: newRent })
-        .eq("id", item.id);
+      const { error } = await retryWithBackoff(async () => {
+        return await supabase
+          .from("furniture_items")
+          .update({ unit_rent: newRent })
+          .eq("id", item.id);
+      });
 
       if (error) throw error;
 
@@ -391,7 +507,9 @@ export default function FurnitureManager({
     } catch (error: any) {
       toast({
         title: "Error updating rent",
-        description: error.message,
+        description: error.code === "over_request_rate_limit" 
+          ? "Too many requests. Please try again in a moment." 
+          : error.message,
         variant: "destructive",
       });
     }
@@ -399,8 +517,21 @@ export default function FurnitureManager({
 
   // Calculate total rent
   const totalRent = useMemo(() => {
-    const furnitureTotal = furniture.reduce((sum, f) => sum + f.unit_rent * f.assigned_quantity, 0);
-    return furnitureTotal + applianceRent + roundoff;
+    // Calculate furniture rent
+    const furnitureTotal = furniture.reduce((sum, f) => {
+      const rentPerItem = parseFloat(f.unit_rent?.toString() || "0");
+      const quantity = f.assigned_quantity || 0;
+      return sum + (rentPerItem * quantity);
+    }, 0);
+
+    // Add appliance rent
+    const baseTotal = furnitureTotal + (applianceRent || 0);
+    
+    // Add roundoff (can be positive or negative)
+    const withRoundoff = baseTotal + roundoff;
+
+    // Round to nearest whole number and ensure non-negative
+    return Math.max(0, Math.round(withRoundoff));
   }, [furniture, applianceRent, roundoff]);
 
   // Validate total rent against flat rent
@@ -411,6 +542,47 @@ export default function FurnitureManager({
   useEffect(() => {
     onTotalRentChange(totalRent);
   }, [totalRent, onTotalRentChange]);
+
+  // Add a function to calculate automatic roundoff
+  const calculateAutoRoundoff = () => {
+    // Calculate base total without roundoff
+    const furnitureTotal = furniture.reduce((sum, f) => {
+      const rentPerItem = parseFloat(f.unit_rent?.toString() || "0");
+      const quantity = f.assigned_quantity || 0;
+      return sum + (rentPerItem * quantity);
+    }, 0);
+    
+    const baseTotal = furnitureTotal + (applianceRent || 0);
+    
+    if (flatRent > 0) {
+      // If flat rent is set, calculate exact roundoff needed
+      const requiredRoundoff = flatRent - baseTotal;
+      setRoundoff(Math.round(requiredRoundoff));
+    } else {
+      // Round to nearest 100
+      const roundedAmount = Math.ceil(baseTotal / 100) * 100;
+      const requiredRoundoff = roundedAmount - baseTotal;
+      setRoundoff(Math.round(requiredRoundoff));
+    }
+  };
+
+  // Add a function to handle roundoff changes
+  const handleRoundoffChange = (value: string) => {
+    // Convert empty string to 0
+    if (value === "" || value === "-") {
+      setRoundoff(0);
+      return;
+    }
+
+    // Parse the value as a number
+    const numValue = parseFloat(value);
+    
+    // Check if it's a valid number
+    if (!isNaN(numValue)) {
+      // Round to whole number
+      setRoundoff(Math.round(numValue));
+    }
+  };
 
   return (
     <TooltipProvider>
@@ -506,21 +678,70 @@ export default function FurnitureManager({
             </div>
             <div className="mt-6 space-y-4">
               <div className="flex items-center gap-4">
-                <Label htmlFor="roundoff" className="text-luxury-charcoal font-medium">Roundoff Amount (₹)</Label>
+                <Label htmlFor="roundoff" className="text-luxury-charcoal font-medium">
+                  Roundoff Amount (₹)
+                </Label>
                 <Input
                   id="roundoff"
                   type="number"
                   value={roundoff}
-                  onChange={(e) => setRoundoff(Number(e.target.value) || 0)}
+                  onChange={(e) => handleRoundoffChange(e.target.value)}
                   className="w-32 border-luxury-gold/20 focus:ring-luxury-gold focus:border-luxury-gold"
+                  placeholder="0"
+                  step="0.01" // Allow decimal values
                 />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setRoundoff(0)}
+                        className="h-8 px-2 text-gray-500 hover:text-gray-700"
+                      >
+                        Reset
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Reset roundoff to 0</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={calculateAutoRoundoff}
+                        className="h-8 px-2 text-luxury-gold hover:text-luxury-gold/80"
+                      >
+                        Auto
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Automatically calculate roundoff</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <p className="text-lg font-semibold text-luxury-charcoal">
-                  Total Rent: ₹{totalRent.toLocaleString()}
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-600">
+                    Furniture Rent: ₹{furniture.reduce((sum, f) => sum + (f.unit_rent * f.assigned_quantity), 0).toLocaleString()}
+                  </p>
+                  {applianceRent > 0 && (
+                    <p className="text-sm text-gray-600">
+                      Appliance Rent: ₹{applianceRent.toLocaleString()}
+                    </p>
+                  )}
+                  {roundoff !== 0 && (
+                    <p className="text-sm text-gray-600">
+                      Roundoff: {roundoff > 0 ? '+' : ''}{roundoff.toLocaleString()}
+                    </p>
+                  )}
+                  <p className="text-lg font-semibold text-luxury-charcoal">
+                    Total Rent: ₹{totalRent.toLocaleString()}
+                  </p>
+                </div>
                 {!rentMatchesFlat && flatRent > 0 && (
-                  <p className="text-sm text-danger flex items-center gap-2">
+                  <p className="text-sm text-red-600 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
                     Total does not match flat rent (₹{flatRent.toLocaleString()})
                   </p>

@@ -79,6 +79,42 @@ import {
 } from "recharts";
 import { generateRentReminderMessage } from "@/utils/messageTemplates";
 
+// Retry utility with exponential backoff
+const retryWithBackoff = async <T,>(
+  operation: () => Promise<T>,
+  maxRetries: number = 5,  // Increased from 3 to 5
+  baseDelay: number = 2000  // Increased from 1000 to 2000
+): Promise<T> => {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a rate limit error
+      if (error?.message?.includes('rate limit') || error?.code === 'over_request_rate_limit') {
+        // Calculate delay with exponential backoff and jitter
+        const exponentialDelay = baseDelay * Math.pow(2, attempt);
+        const jitter = Math.random() * 1000; // Add up to 1 second of random jitter
+        const delay = exponentialDelay + jitter;
+        
+        console.warn(`Rate limit hit, retrying in ${Math.round(delay/1000)} seconds... (Attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // For other errors, use shorter delays
+      const delay = baseDelay * Math.pow(1.5, attempt);
+      console.warn(`Operation failed, retrying in ${Math.round(delay/1000)} seconds... (Attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError;
+};
+
 type Flat = Database["public"]["Tables"]["flats"]["Row"];
 type MaintenanceRequest = Database["public"]["Tables"]["maintenance_requests"]["Row"];
 type Expense = Database["public"]["Tables"]["expenses"]["Row"] & {
@@ -328,16 +364,18 @@ const FlatDetail = () => {
     queryKey: ["flat", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
-      const { data, error } = await typedSupabase
-        .from("flats")
-        .select(`
-          *,
-          tenants (*),
-          property_documents (*),
-          property_photos (*)
-        `)
-        .eq("id", id)
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("flats")
+          .select(`
+            *,
+            tenants (*),
+            property_documents (*),
+            property_photos (*)
+          `)
+          .eq("id", id)
+          .single();
+      });
       if (error) throw new Error(error.message || "Flat not found");
       if (!data) throw new Error("Flat not found");
       return {
@@ -382,11 +420,13 @@ const FlatDetail = () => {
   >({
     queryKey: ["available_tenants"],
     queryFn: async () => {
-      const { data, error } = await typedSupabase
-        .from("tenants")
-        .select("id, name, phone")
-        .is("flat_id", null)
-        .eq("is_active", true);
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenants")
+          .select("id, name, phone")
+          .is("flat_id", null)
+          .eq("is_active", true);
+      });
       if (error) throw new Error(error.message);
       return data || [];
     },
@@ -395,12 +435,14 @@ const FlatDetail = () => {
   const { data: furnitureItems, isLoading: furnitureLoading } = useQuery<FurnitureItem[]>({
     queryKey: ["furniture_items", id, page],
     queryFn: async () => {
-      const { data, error } = await typedSupabase
-        .from("furniture_items")
-        .select("*")
-        .eq("flat_id", id)
-        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-        .order("created_at", { ascending: false });
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("furniture_items")
+          .select("*")
+          .eq("flat_id", id)
+          .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
+          .order("created_at", { ascending: false });
+      });
       if (error) throw new Error(error.message);
       return (data || []) as FurnitureItem[];
     },
@@ -412,10 +454,11 @@ const FlatDetail = () => {
     {
       queryKey: ["tenant_furniture", id, page],
       queryFn: async () => {
-        const { data, error } = await typedSupabase
-          .from("tenant_furniture")
-          .select(
-            `
+        const { data, error } = await retryWithBackoff(async () => {
+          return await typedSupabase
+            .from("tenant_furniture")
+            .select(
+              `
         id,
         assigned_quantity,
         assigned_on,
@@ -423,10 +466,11 @@ const FlatDetail = () => {
         furniture_item:furniture_items(id, name, unit_rent, category, condition, purchase_date, purchase_price),
         tenant:tenants(id, name)
       `
-          )
-          .eq("tenant.flat_id", id)
-          .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-          .order("assigned_on", { ascending: false });
+            )
+            .eq("tenant.flat_id", id)
+            .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
+            .order("assigned_on", { ascending: false });
+        });
         if (error) throw new Error(error.message);
         return data || [];
       },
@@ -448,19 +492,21 @@ const FlatDetail = () => {
         photoPath = fileName;
       }
 
-      const { data, error } = await typedSupabase
-        .from("tenants")
-        .insert({
-          name,
-          phone,
-          email: email || null,
-          flat_id: id,
-          start_date: new Date().toISOString().split("T")[0],
-          is_active: true,
-          tenant_photo: photoPath,
-        })
-        .select()
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenants")
+          .insert({
+            name,
+            phone,
+            email: email || null,
+            flat_id: id,
+            start_date: new Date().toISOString().split("T")[0],
+            is_active: true,
+            tenant_photo: photoPath,
+          })
+          .select()
+          .single();
+      });
       if (error) throw new Error(error.message);
       return data;
     },
@@ -488,14 +534,16 @@ const FlatDetail = () => {
   // Assign tenant mutation
   const assignTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
-      const { error } = await typedSupabase
-        .from("tenants")
-        .update({
-          flat_id: id,
-          start_date: new Date().toISOString().split("T")[0],
-          is_active: true,
-        })
-        .eq("id", tenantId);
+      const { error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenants")
+          .update({
+            flat_id: id,
+            start_date: new Date().toISOString().split("T")[0],
+            is_active: true,
+          })
+          .eq("id", tenantId);
+      });
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
@@ -522,22 +570,26 @@ const FlatDetail = () => {
   // Unassign tenant mutation
   const unassignTenantMutation = useMutation({
     mutationFn: async (tenantId: string) => {
-      const { data: tenant, error: fetchError } = await typedSupabase
-        .from("tenants")
-        .select("id")
-        .eq("id", tenantId)
-        .single();
+      const { data: tenant, error: fetchError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenants")
+          .select("id")
+          .eq("id", tenantId)
+          .single();
+      });
       if (fetchError)
         throw new Error(`Failed to find tenant: ${fetchError.message}`);
       if (!tenant) throw new Error("Tenant not found");
 
-      const { error } = await typedSupabase
-        .from("tenants")
-        .update({
-          flat_id: null,
-          is_active: false,
-        })
-        .eq("id", tenantId);
+      const { error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenants")
+          .update({
+            flat_id: null,
+            is_active: false,
+          })
+          .eq("id", tenantId);
+      });
       if (error) throw new Error(error.message || "Failed to unassign tenant");
     },
     onSuccess: () => {
@@ -566,20 +618,22 @@ const FlatDetail = () => {
       priority,
       tenant_id,
     }: MaintenanceForm) => {
-      const { data, error } = await typedSupabase
-        .from("maintenance_requests")
-        .insert({
-          flat_id: id,
-          tenant_id: tenant_id || null,
-          title,
-          description: description || null,
-          status: "open",
-          priority,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("maintenance_requests")
+          .insert({
+            flat_id: id,
+            tenant_id: tenant_id || null,
+            title,
+            description: description || null,
+            status: "open",
+            priority,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+      });
       if (error) throw new Error(error.message);
       return data;
     },
@@ -626,17 +680,19 @@ const FlatDetail = () => {
         .upload(fileName, file);
       if (uploadError) throw new Error(uploadError.message);
 
-      const { data: insertData, error: insertError } = await typedSupabase
-        .from("property_documents")
-        .insert({
-          flat_id: id,
-          file_path: fileName,
-          name: name || file.name,
-          document_type,
-          uploaded_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+      const { data: insertData, error: insertError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("property_documents")
+          .insert({
+            flat_id: id,
+            file_path: fileName,
+            name: name || file.name,
+            document_type,
+            uploaded_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+      });
       if (insertError) throw new Error(insertError.message);
       return insertData;
     },
@@ -664,11 +720,13 @@ const FlatDetail = () => {
   // Delete document mutation
   const deleteDocumentMutation = useMutation({
     mutationFn: async (docId: string) => {
-      const { data: doc, error: fetchError } = await typedSupabase
-        .from("property_documents")
-        .select("file_path")
-        .eq("id", docId)
-        .single();
+      const { data: doc, error: fetchError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("property_documents")
+          .select("file_path")
+          .eq("id", docId)
+          .single();
+      });
       if (fetchError) throw new Error(fetchError.message);
 
       const { error: storageError } = await typedSupabase.storage
@@ -676,10 +734,12 @@ const FlatDetail = () => {
         .remove([doc.file_path]);
       if (storageError) throw new Error(storageError.message);
 
-      const { error: deleteError } = await typedSupabase
-        .from("property_documents")
-        .delete()
-        .eq("id", docId);
+      const { error: deleteError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("property_documents")
+          .delete()
+          .eq("id", docId);
+      });
       if (deleteError) throw new Error(deleteError.message);
     },
     onSuccess: () => {
@@ -702,22 +762,24 @@ const FlatDetail = () => {
   });
   const addFurnitureMutation = useMutation({
     mutationFn: async ({ name, unit_rent }: FurnitureForm) => {
-      const { data, error } = await typedSupabase
-        .from("furniture_items")
-        .insert({
-          flat_id: id,
-          name,
-          unit_rent: Number(unit_rent),
-          condition: "new",
-          total_quantity: 1,
-          available_quantity: 1,
-          purchase_date: new Date().toISOString().split("T")[0],
-          purchase_price: 0,
-          category: "Furniture",
-          is_appliance: false,
-        })
-        .select()
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("furniture_items")
+          .insert({
+            flat_id: id,
+            name,
+            unit_rent: Number(unit_rent),
+            condition: "new",
+            total_quantity: 1,
+            available_quantity: 1,
+            purchase_date: new Date().toISOString().split("T")[0],
+            purchase_price: 0,
+            category: "Furniture",
+            is_appliance: false,
+          })
+          .select()
+          .single();
+      });
       if (error) throw new Error(error.message);
       return data;
     },
@@ -741,37 +803,43 @@ const FlatDetail = () => {
   });
   const assignFurnitureMutation = useMutation({
     mutationFn: async (form: TenantFurnitureForm) => {
-      const { data: furniture, error: fetchError } = await typedSupabase
-        .from("furniture_items")
-        .select("available_quantity")
-        .eq("id", form.furniture_item_id)
-        .single();
+      const { data: furniture, error: fetchError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("furniture_items")
+          .select("available_quantity")
+          .eq("id", form.furniture_item_id)
+          .single();
+      });
       if (fetchError) throw new Error(fetchError.message);
       if (!furniture) throw new Error("Furniture item not found");
       if (furniture.available_quantity < Number(form.assigned_quantity)) {
         throw new Error("Not enough available quantity");
       }
 
-      const { data, error } = await typedSupabase
-        .from("tenant_furniture")
-        .insert({
-          tenant_id: flat.tenants?.[0]?.id,
-          furniture_item_id: form.furniture_item_id,
-          assigned_quantity: Number(form.assigned_quantity),
-          rent_part: Number(form.purchase_price),
-        })
-        .select()
-        .single();
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("tenant_furniture")
+          .insert({
+            tenant_id: flat.tenants?.[0]?.id,
+            furniture_item_id: form.furniture_item_id,
+            assigned_quantity: Number(form.assigned_quantity),
+            rent_part: Number(form.purchase_price),
+          })
+          .select()
+          .single();
+      });
       if (error) throw new Error(error.message);
 
       // Update available quantity
-      const { error: updateError } = await typedSupabase
-        .from("furniture_items")
-        .update({
-          available_quantity:
-            furniture.available_quantity - Number(form.assigned_quantity),
-        })
-        .eq("id", form.furniture_item_id);
+      const { error: updateError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("furniture_items")
+          .update({
+            available_quantity:
+              furniture.available_quantity - Number(form.assigned_quantity),
+          })
+          .eq("id", form.furniture_item_id);
+      });
       if (updateError) throw new Error(updateError.message);
 
       return data;
@@ -834,42 +902,46 @@ const FlatDetail = () => {
           continue;
         }
 
-        const { data: rentData, error: rentError } = await typedSupabase
-          .from("rents")
-          .insert({
-            tenant_id: tenant.id,
-            flat_id: id,
-            amount,
-            due_date: dueDate,
-            is_paid: false,
-            whatsapp_sent: false,
-            custom_message: description,
-            created_at: new Date().toISOString(),
-            payment_frequency: isRecurring ? "monthly" : "one_time",
-            reminder_day: isRecurring ? reminderDay : null,
-            last_reminder_date: null,
-          })
-          .select("id")
-          .single();
+        const { data: rentData, error: rentError } = await retryWithBackoff(async () => {
+          return await typedSupabase
+            .from("rents")
+            .insert({
+              tenant_id: tenant.id,
+              flat_id: id,
+              amount,
+              due_date: dueDate,
+              is_paid: false,
+              whatsapp_sent: false,
+              custom_message: description,
+              created_at: new Date().toISOString(),
+              payment_frequency: isRecurring ? "monthly" : "one_time",
+              reminder_day: isRecurring ? reminderDay : null,
+              last_reminder_date: null,
+            })
+            .select("id")
+            .single();
+        });
         if (rentError) throw new Error(rentError.message);
 
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + expiryDays);
 
-        const { data: linkData, error: linkError } = await typedSupabase
-          .from("payment_links")
-          .insert({
-            tenant_id: tenant.id,
-            rent_id: rentData.id,
-            amount,
-            description: description || null,
-            expires_at: expiryDate.toISOString(),
-            status: "active",
-            payment_link: window.location.origin + "/payment-verification",
-            generated_at: new Date().toISOString(),
-          })
-          .select("id")
-          .single();
+        const { data: linkData, error: linkError } = await retryWithBackoff(async () => {
+          return await typedSupabase
+            .from("payment_links")
+            .insert({
+              tenant_id: tenant.id,
+              rent_id: rentData.id,
+              amount,
+              description: description || null,
+              expires_at: expiryDate.toISOString(),
+              status: "active",
+              payment_link: window.location.origin + "/payment-verification",
+              generated_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+        });
         if (linkError) throw new Error(linkError.message);
 
         const paymentLink = `${
@@ -878,20 +950,24 @@ const FlatDetail = () => {
           linkData.id
         }&amount=${amount}&name=${encodeURIComponent(tenant.name)}`;
 
-        const { error: updateError } = await typedSupabase
-          .from("payment_links")
-          .update({ payment_link: paymentLink })
-          .eq("id", linkData.id);
+        const { error: updateError } = await retryWithBackoff(async () => {
+          return await typedSupabase
+            .from("payment_links")
+            .update({ payment_link: paymentLink })
+            .eq("id", linkData.id);
+        });
         if (updateError) throw new Error(updateError.message);
 
         // Create initial WhatsApp message
-        await typedSupabase.from("whatsapp_messages").insert({
-          tenant_id: tenant.id,
-          rent_id: rentData.id,
-          message: `Dear ${tenant.name}, please pay your rent of ₹${amount} for ${flat.name}. Use this link: ${paymentLink}`,
-          recipient_phone: tenant.phone,
-          sent_at: new Date().toISOString(),
-          included_payment_link: true,
+        await retryWithBackoff(async () => {
+          return await typedSupabase.from("whatsapp_messages").insert({
+            tenant_id: tenant.id,
+            rent_id: rentData.id,
+            message: `Dear ${tenant.name}, please pay your rent of ₹${amount} for ${flat.name}. Use this link: ${paymentLink}`,
+            recipient_phone: tenant.phone,
+            sent_at: new Date().toISOString(),
+            included_payment_link: true,
+          });
         });
 
         // If recurring is enabled, schedule the first reminder
@@ -902,14 +978,16 @@ const FlatDetail = () => {
             nextReminderDate.setMonth(nextReminderDate.getMonth() + 1);
           }
 
-          await typedSupabase.from("rent_reminders").insert({
-            rent_id: rentData.id,
-            tenant_id: tenant.id,
-            next_reminder_date: nextReminderDate.toISOString().split("T")[0],
-            reminder_day: reminderDay,
-            is_active: true,
-            amount,
-            message_template: `Dear ${tenant.name}, your monthly rent of ₹${amount} for ${flat.name} is due. Please ensure timely payment.`,
+          await retryWithBackoff(async () => {
+            return await typedSupabase.from("rent_reminders").insert({
+              rent_id: rentData.id,
+              tenant_id: tenant.id,
+              next_reminder_date: nextReminderDate.toISOString().split("T")[0],
+              reminder_day: reminderDay,
+              is_active: true,
+              amount,
+              message_template: `Dear ${tenant.name}, your monthly rent of ₹${amount} for ${flat.name} is due. Please ensure timely payment.`,
+            });
           });
         }
 
@@ -957,34 +1035,38 @@ const FlatDetail = () => {
           .upload(fileName, expenseReceipt);
         if (uploadError) throw new Error(uploadError.message);
 
-        const { data: docData, error: docError } = await typedSupabase
-          .from("property_documents")
-          .insert({
-            flat_id: id,
-            file_path: fileName,
-            name: expenseReceipt.name,
-            document_type: "expense_receipt",
-          })
-          .select()
-          .single();
+        const { data: docData, error: docError } = await retryWithBackoff(async () => {
+          return await typedSupabase
+            .from("property_documents")
+            .insert({
+              flat_id: id,
+              file_path: fileName,
+              name: expenseReceipt.name,
+              document_type: "expense_receipt",
+            })
+            .select()
+            .single();
+        });
 
         if (docError) throw new Error(docError.message);
         receiptId = docData.id;
       }
 
-      const { data: expense, error } = await typedSupabase
-        .from("expenses")
-        .insert({
-          flat_id: id,
-          title: data.title,
-          amount: Number(data.amount),
-          date: data.date,
-          description: data.description || null,
-          category: data.category,
-          receipt_id: receiptId,
-        })
-        .select()
-        .single();
+      const { data: expense, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("expenses")
+          .insert({
+            flat_id: id,
+            title: data.title,
+            amount: Number(data.amount),
+            date: data.date,
+            description: data.description || null,
+            category: data.category,
+            receipt_id: receiptId,
+          })
+          .select()
+          .single();
+      });
 
       if (error) throw new Error(error.message);
       return expense;
@@ -1048,14 +1130,16 @@ const FlatDetail = () => {
     queryKey: ["maintenance_requests", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
-      const { data, error } = await typedSupabase
-        .from("maintenance_requests")
-        .select(`
-          *,
-          tenant:tenants(id, name)
-        `)
-        .eq("flat_id", id)
-        .order("created_at", { ascending: false });
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("maintenance_requests")
+          .select(`
+            *,
+            tenant:tenants(id, name)
+          `)
+          .eq("flat_id", id)
+          .order("created_at", { ascending: false });
+      });
       if (error) throw new Error(error.message);
       return data || [];
     },
@@ -1070,11 +1154,13 @@ const FlatDetail = () => {
     queryKey: ["expenses", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
-      const { data, error } = await typedSupabase
-        .from("expenses")
-        .select("*")
-        .eq("flat_id", id)
-        .order("date", { ascending: false });
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("expenses")
+          .select("*")
+          .eq("flat_id", id)
+          .order("date", { ascending: false });
+      });
       if (error) throw new Error(error.message);
       return data || [];
     },
@@ -1089,15 +1175,17 @@ const FlatDetail = () => {
     queryKey: ["rents", id],
     queryFn: async () => {
       if (!id) throw new Error("Flat ID is required");
-      const { data, error } = await typedSupabase
-        .from("rents")
-        .select(`
-          *,
-          tenant:tenants(id, name, phone),
-          payment_links(id, payment_link, status)
-        `)
-        .eq("flat_id", id)
-        .order("due_date", { ascending: false });
+      const { data, error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("rents")
+          .select(`
+            *,
+            tenant:tenants(id, name, phone),
+            payment_links(id, payment_link, status)
+          `)
+          .eq("flat_id", id)
+          .order("due_date", { ascending: false });
+      });
       if (error) throw new Error(error.message);
       return (data as unknown as RentWithRelations[]) || [];
     },
@@ -1107,10 +1195,12 @@ const FlatDetail = () => {
   // Add the delete rent mutation
   const deleteRentMutation = useMutation({
     mutationFn: async (rentId: string) => {
-      const { error } = await typedSupabase
-        .from("rents")
-        .delete()
-        .eq("id", rentId);
+      const { error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("rents")
+          .delete()
+          .eq("id", rentId);
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -1133,13 +1223,15 @@ const FlatDetail = () => {
   // Add the update rent status mutation
   const updateRentStatusMutation = useMutation({
     mutationFn: async ({ rentId, isPaid }: { rentId: string; isPaid: boolean }) => {
-      const { error } = await typedSupabase
-        .from("rents")
-        .update({
-          is_paid: isPaid,
-          paid_on: isPaid ? new Date().toISOString().split("T")[0] : null,
-        })
-        .eq("id", rentId);
+      const { error } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("rents")
+          .update({
+            is_paid: isPaid,
+            paid_on: isPaid ? new Date().toISOString().split("T")[0] : null,
+          })
+          .eq("id", rentId);
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -1246,10 +1338,12 @@ const FlatDetail = () => {
   const deleteFlatMutation = useMutation({
     mutationFn: async () => {
       // First delete all related records
-      const { error: relatedError } = await typedSupabase
-        .from("flats")
-        .delete()
-        .eq("id", id);
+      const { error: relatedError } = await retryWithBackoff(async () => {
+        return await typedSupabase
+          .from("flats")
+          .delete()
+          .eq("id", id);
+      });
       if (relatedError) throw new Error(relatedError.message);
     },
     onSuccess: () => {
@@ -1294,20 +1388,24 @@ const FlatDetail = () => {
     const whatsappURL = `https://wa.me/${formattedNumber}?text=${whatsappMessage}`;
 
     try {
-      await typedSupabase.from("whatsapp_messages").insert({
-        tenant_id: tenantId,
-        flat_id: id,
-        rent_id: rentId,
-        message,
-        recipient_phone: phone,
-        sent_at: new Date().toISOString(),
-        status: "pending",
+      await retryWithBackoff(async () => {
+        return await typedSupabase.from("whatsapp_messages").insert({
+          tenant_id: tenantId,
+          flat_id: id,
+          rent_id: rentId,
+          message,
+          recipient_phone: phone,
+          sent_at: new Date().toISOString(),
+          status: "pending",
+        });
       });
 
-      await typedSupabase.from("rents").update({
-        whatsapp_sent: true,
-        last_reminder_date: new Date().toISOString().slice(0, 10),
-      }).eq("id", rentId);
+      await retryWithBackoff(async () => {
+        return await typedSupabase.from("rents").update({
+          whatsapp_sent: true,
+          last_reminder_date: new Date().toISOString().slice(0, 10),
+        }).eq("id", rentId);
+      });
 
       window.open(whatsappURL, "_blank");
 
